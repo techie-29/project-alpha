@@ -1,56 +1,74 @@
 const express = require("express");
+const fs = require("fs");
 
 const upload = require("../middleware/uploadMiddleware");
-
 const {
     processFile
 } = require("../services/fileprocessingservices");
-
 const {
     profileDataset
 } = require("../services/datasetProfilingService");
 
-const {
-    createIngestionResult
-} = require("../services/ingestionResultService");
-
 const router = express.Router();
+
+function removeTemporaryFile(filePath) {
+    if (!filePath) {
+        return;
+    }
+
+    fs.unlink(filePath, (error) => {
+        if (error && error.code !== "ENOENT") {
+            console.error("Could not remove temporary upload:", error.message);
+        }
+    });
+}
 
 router.post("/", upload.single("file"), (req, res, next) => {
     try {
         if (!req.file) {
             return res.status(400).json({
                 success: false,
-                message: "No file was uploaded"
+                message: "No file uploaded"
             });
         }
 
-        /*
-         * Part 2:
-         * Read the CSV or Excel file and extract headers and rows.
-         */
-        const dataset = processFile(req.file);
+        const processedDataset = processFile(req.file);
+        const profile = profileDataset(processedDataset);
 
-        /*
-         * Part 3:
-         * Count rows and columns and detect column types.
-         */
-        const profile = profileDataset(dataset);
+        const ingestionResult = {
+            success: true,
+            message: "Dataset uploaded and structured successfully",
 
-        /*
-         * Part 4:
-         * Package the file information, dataset, profile,
-         * and Module 3 handoff into one response.
-         */
-        const ingestionResult = createIngestionResult({
-            file: req.file,
-            dataset: dataset,
-            profile: profile
-        });
+            data: {
+                sourceFile: {
+                    fileName: req.file.originalname,
+                    format: processedDataset.format,
+                    sizeBytes: req.file.size,
+                    sheetName: processedDataset.sheetName
+                },
+
+                dataset: {
+                    headers: processedDataset.headers,
+                    rows: processedDataset.rows,
+                    profile
+                },
+
+                handoff: {
+                    status: "ready_for_validation"
+                }
+            }
+        };
+
+        console.log(
+            `Ingested ${req.file.originalname}: ` +
+            `${profile.rowCount} rows, ${profile.columnCount} columns`
+        );
 
         return res.status(200).json(ingestionResult);
     } catch (error) {
         next(error);
+    } finally {
+        removeTemporaryFile(req.file?.path);
     }
 });
 
