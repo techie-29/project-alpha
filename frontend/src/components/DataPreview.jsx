@@ -15,16 +15,21 @@ export default function DataPreview({ rows, columns }) {
   const startIndex = safePage * PAGE_SIZE;
   const endIndex = Math.min(startIndex + PAGE_SIZE, rows.length);
   const previewRows = rows.slice(startIndex, endIndex);
-  const rangeLabel = startIndex === 0
-    ? `Showing first ${endIndex} of ${rows.length} rows`
-    : `Showing rows ${startIndex + 1}–${endIndex} of ${rows.length}`;
+  const rangeLabel = rows.length === 0
+    ? "No rows available"
+    : startIndex === 0
+      ? `Showing first ${endIndex} of ${rows.length} rows`
+      : `Showing rows ${startIndex + 1}–${endIndex} of ${rows.length}`;
+  const compactRange = rows.length === 0
+    ? "0 rows"
+    : `${startIndex + 1}–${endIndex} of ${rows.length}`;
 
   useEffect(() => {
     setCurrentPage(0);
   }, [rows]);
 
   return <section className="result-section" aria-labelledby="preview-title">
-    <div className="result-section-heading"><div><span className="step-number">03</span><div><h2 id="preview-title">Data preview</h2><p>{rangeLabel}</p></div></div><span className="count-label">{startIndex + 1}–{endIndex} of {rows.length}</span></div>
+    <div className="result-section-heading"><div><span className="step-number">03</span><div><h2 id="preview-title">Data preview</h2><p>{rangeLabel}</p></div></div><span className="count-label">{compactRange}</span></div>
     {previewRows.length && columns.length ? <>
       <div className="preview-scroll"><table><thead><tr><th>#</th>{columns.map((column, index) => <th key={`${column.name}-${index}`}>{column.name}</th>)}</tr></thead><tbody>{previewRows.map((row, rowIndex) => <tr key={startIndex + rowIndex}><td>{startIndex + rowIndex + 1}</td>{columns.map((column, columnIndex) => <td key={`${column.name}-${columnIndex}`} title={String(row?.[column.name] ?? "")}>{displayValue(row?.[column.name])}</td>)}</tr>)}</tbody></table></div>
       {rows.length > PAGE_SIZE && <nav className="preview-pagination" aria-label="Dataset preview pages">
