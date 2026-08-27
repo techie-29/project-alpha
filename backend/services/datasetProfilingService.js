@@ -33,15 +33,10 @@ function isDate(value) {
     }
 
     const cleanedValue = value.trim();
-
-    const yearFirst =
-        /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/;
-
-    const dayFirst =
-        /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/;
+    const yearFirst = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/;
+    const dayFirst = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/;
 
     let match = cleanedValue.match(yearFirst);
-
     let year;
     let month;
     let day;
@@ -83,64 +78,43 @@ function detectValueType(value) {
     return "text";
 }
 
-function profileColumn(columnName, rows) {
-    let missingCount = 0;
-
-    const typeCounts = {
-        number: 0,
-        date: 0,
-        text: 0
-    };
+function detectColumnType(columnName, rows) {
+    const detectedTypes = new Set();
 
     for (const row of rows) {
         const value = row[columnName];
 
-        if (isMissing(value)) {
-            missingCount++;
-            continue;
+        if (!isMissing(value)) {
+            detectedTypes.add(detectValueType(value));
         }
-
-        const valueType = detectValueType(value);
-
-        typeCounts[valueType]++;
     }
 
-    const foundTypes = Object.keys(typeCounts).filter((type) => {
-        return typeCounts[type] > 0;
-    });
-
-    let detectedType = "unknown";
-
-    if (foundTypes.length === 1) {
-        detectedType = foundTypes[0];
+    if (detectedTypes.size === 0) {
+        return "unknown";
     }
 
-    if (foundTypes.length > 1) {
-        detectedType = "mixed";
+    if (detectedTypes.size > 1) {
+        return "mixed";
     }
 
-    return {
-        name: columnName,
-        detectedType: detectedType,
-        missingCount: missingCount,
-        nonMissingCount: rows.length - missingCount,
-        hasMixedTypes: foundTypes.length > 1,
-        typeCounts: typeCounts
-    };
+    return Array.from(detectedTypes)[0];
 }
 
 function profileDataset(dataset) {
     const headers = dataset.headers;
     const rows = dataset.rows;
 
-   const columns = headers.map((header) => {
-    return profileColumn(header, rows);
-});
+    const columns = headers.map((header) => {
+        return {
+            name: header,
+            detectedType: detectColumnType(header, rows)
+        };
+    });
 
     return {
         rowCount: rows.length,
         columnCount: headers.length,
-        columns: columns
+        columns
     };
 }
 
