@@ -1,61 +1,44 @@
-function firstArray(...candidates) {
-  return candidates.find(Array.isArray) || [];
-}
-
-function valueFrom(...candidates) {
-  return candidates.find((value) => value !== undefined && value !== null && value !== "");
-}
-
 export function normalizeIngestionResult(response, selectedFile) {
-  const nested = response.result || response.dataset || response.ingestion || {};
-  const rows = firstArray(
-    response.data,
-    response.rows,
-    response.preview,
-    response.sampleRows,
-    nested.data,
-    nested.rows,
-    nested.preview
-  );
+  const data = response?.data || {};
+  const sourceFile = data.sourceFile || {};
+  const dataset = data.dataset || {};
+  const profile = dataset.profile || {};
 
-  const rawColumns = firstArray(response.columns, response.headers, nested.columns, nested.headers);
-  const profileColumns = firstArray(
-    response.columnProfiles,
-    response.columnProfile,
-    response.profile?.columns,
-    nested.columnProfiles
-  );
-
-  const columnObjects = rawColumns.filter((column) => column && typeof column === "object");
-  const suppliedHeaders = rawColumns.map((column) =>
-    typeof column === "string" ? column : column.name || column.columnName || column.header || column.key
-  ).filter(Boolean);
-  const headers = suppliedHeaders.length ? suppliedHeaders : rows[0] && typeof rows[0] === "object" ? Object.keys(rows[0]) : [];
+  const rows = Array.isArray(dataset.rows) ? dataset.rows : [];
+  const profileColumns = Array.isArray(profile.columns) ? profile.columns : [];
+  const headers = Array.isArray(dataset.headers)
+    ? dataset.headers
+    : profileColumns.map((column) => column.name);
 
   const profilesByName = new Map(
-    [...columnObjects, ...profileColumns].map((profile) => [
-      profile.name || profile.columnName || profile.header || profile.key,
-      profile,
-    ])
+    profileColumns.map((column) => [column.name, column])
   );
 
   const columns = headers.map((name) => {
-    const profile = profilesByName.get(name) || {};
+    const columnProfile = profilesByName.get(name);
+
     return {
       name,
-      detectedType: valueFrom(profile.detectedType, profile.type, profile.dataType),
-      missingCount: valueFrom(profile.missingCount, profile.missing, profile.nullCount),
+      detectedType: columnProfile?.detectedType || "unknown",
     };
   });
 
-  const fallbackType = selectedFile?.name.split(".").pop()?.toUpperCase();
+  const fallbackFormat = selectedFile?.name
+    .split(".")
+    .pop()
+    ?.toUpperCase();
+
   return {
-    fileName: valueFrom(response.fileName, response.filename, response.file?.name, nested.fileName, selectedFile?.name),
-    fileType: valueFrom(response.fileType, response.mimetype, response.file?.type, nested.fileType, fallbackType),
-    rowCount: valueFrom(response.rowCount, response.totalRows, response.profile?.rowCount, nested.rowCount, rows.length),
-    columnCount: valueFrom(response.columnCount, response.totalColumns, response.profile?.columnCount, nested.columnCount, headers.length),
-    sheetName: valueFrom(response.sheetName, response.sheet, nested.sheetName),
-    status: valueFrom(response.status, nested.status, response.success === false ? "Failed" : "Ingested"),
+    fileName: sourceFile.fileName || selectedFile?.name || "Uploaded dataset",
+    fileType: sourceFile.format?.toUpperCase() || fallbackFormat || "Unknown",
+    sizeBytes: sourceFile.sizeBytes ?? selectedFile?.size ?? null,
+    rowCount: profile.rowCount ?? rows.length,
+    columnCount: profile.columnCount ?? headers.length,
+    sheetName: sourceFile.sheetName || null,
+    status:
+      data.handoff?.status === "ready_for_validation"
+        ? "Ready for validation"
+        : "Ingested",
     rows,
     columns,
   };
