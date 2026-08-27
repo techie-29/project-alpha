@@ -31,6 +31,7 @@ export function normalizeIngestionResult(response, selectedFile) {
   return {
     fileName: sourceFile.fileName || selectedFile?.name || "Uploaded dataset",
     fileType: sourceFile.format?.toUpperCase() || fallbackFormat || "Unknown",
+    sizeBytes: sourceFile.sizeBytes ?? selectedFile?.size ?? null,
     rowCount: profile.rowCount ?? rows.length,
     columnCount: profile.columnCount ?? headers.length,
     sheetName: sourceFile.sheetName || null,
