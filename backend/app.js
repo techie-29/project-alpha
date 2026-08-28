@@ -1,102 +1,42 @@
-// const express = require("express");
-// const multer = require("multer");
-// const path = require("path");
-
-// const app = express();
-// const port = 5000;
-
-// const allowedExtensions = [".csv", ".xlsx", ".xls"];
-
-// const upload = multer({
-//     dest: "uploads/",
-
-//     limits: {
-//         fileSize: 10 * 1024 * 1024
-//     },
-
-//     fileFilter: (req, file, cb) => {
-//         const extension = path.extname(file.originalname).toLowerCase();
-
-//         if (allowedExtensions.includes(extension)) {
-//             cb(null, true);
-//         } else {
-//             cb(new Error("Only CSV and Excel files are allowed"));
-//         }
-//     }
-// });
-
-// app.post("/api/upload", upload.single("file"), (req, res) => {
-//     if (!req.file) {
-//         return res.status(400).json({
-//             success: false,
-//             message: "No file uploaded"
-//         });
-//     }
-
-//     return res.json({
-//         success: true,
-//         message: "File received successfully",
-//         file: req.file
-//     });
-// });
-
-// app.use((err, req, res, next) => {
-//     if (err instanceof multer.MulterError) {
-//         return res.status(400).json({
-//             success: false,
-//             message: err.message
-//         });
-//     }
-
-//     if (err) {
-//         return res.status(400).json({
-//             success: false,
-//             message: err.message
-//         });
-//     }
-
-//     next();
-// });
-
-// app.listen(port, () => {
-//     console.log(`Backend is running on port: ${port}`);
-// });
+require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 
+const authRoutes = require("./routes/authRoutes");
 const uploadRoutes = require("./routes/uploadroutes");
-
+const authMiddleware = require("./middleware/authMiddleware");
 
 const app = express();
-
-const PORT = 5000;
-
+const PORT = process.env.PORT || 5000;
 
 app.use(cors());
+app.use(express.json());
 
+app.get("/api/health", (req, res) => {
+    res.json({ success: true, message: "Project Alpha backend is running" });
+});
 
-app.use("/api/upload", uploadRoutes);
-
+app.use("/api/auth", authRoutes);
+app.use("/api/upload", authMiddleware, uploadRoutes);
 
 app.use((err, req, res, next) => {
+    const isUploadRequest = req.originalUrl.startsWith("/api/upload");
+    const status = err instanceof multer.MulterError
+        ? 400
+        : err.status || (isUploadRequest ? 400 : 500);
 
-    if (err instanceof multer.MulterError) {
-
-        return res.status(400).json({
-            success: false,
-            message: err.message
-        });
+    if (status >= 500) {
+        console.error(err);
     }
 
-    return res.status(400).json({
+    return res.status(status).json({
         success: false,
-        message: err.message
+        message: status >= 500 ? "Internal server error" : err.message
     });
 });
 
-
 app.listen(PORT, () => {
-    console.log(`Backend is running on port ${PORT}`);
+    console.log(`Project Alpha backend is running on port ${PORT}`);
 });

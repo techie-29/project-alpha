@@ -1,0 +1,10 @@
+CREATE DATABASE IF NOT EXISTS project_alpha;
+USE project_alpha;
+
+CREATE TABLE IF NOT EXISTS business_accounts (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    business_name VARCHAR(120) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
