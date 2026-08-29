@@ -19,7 +19,9 @@ export async function uploadDataset(file, jwtToken) {
   const contentType = response.headers.get("content-type") || "";
   const payload = contentType.includes("application/json") ? await response.json() : null;
   if (!response.ok) {
-    throw new Error(payload?.message || payload?.error || `Upload failed (${response.status}). Please try again.`);
+    const error = new Error(payload?.message || payload?.error || `Upload failed (${response.status}). Please try again.`);
+    error.status = response.status;
+    throw error;
   }
   if (!payload) throw new Error("The server returned an empty or unreadable response.");
   if (payload.success === false) {
