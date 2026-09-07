@@ -8,6 +8,9 @@ const {
 const {
     profileDataset
 } = require("../services/datasetProfilingService");
+const {
+    saveIngestion
+} = require("../services/ingestionPersistenceService");
 
 const router = express.Router();
 
@@ -23,7 +26,7 @@ function removeTemporaryFile(filePath) {
     });
 }
 
-router.post("/", upload.single("file"), (req, res, next) => {
+router.post("/", upload.single("file"), async (req, res, next) => {
     try {
         if (!req.file) {
             return res.status(400).json({
@@ -34,18 +37,28 @@ router.post("/", upload.single("file"), (req, res, next) => {
 
         const processedDataset = processFile(req.file);
         const profile = profileDataset(processedDataset);
+        const sourceFile = {
+            fileName: req.file.originalname,
+            format: processedDataset.format,
+            sizeBytes: req.file.size,
+            sheetName: processedDataset.sheetName
+        };
+        const ingestionId = await saveIngestion({
+            businessAccountId: req.user.id,
+            sourceFile,
+            dataset: {
+                headers: processedDataset.headers,
+                rows: processedDataset.rows
+            },
+            profile
+        });
 
         const ingestionResult = {
             success: true,
             message: "Dataset uploaded and structured successfully",
 
             data: {
-                sourceFile: {
-                    fileName: req.file.originalname,
-                    format: processedDataset.format,
-                    sizeBytes: req.file.size,
-                    sheetName: processedDataset.sheetName
-                },
+                sourceFile,
 
                 dataset: {
                     headers: processedDataset.headers,
@@ -54,13 +67,14 @@ router.post("/", upload.single("file"), (req, res, next) => {
                 },
 
                 handoff: {
-                    status: "ready_for_validation"
+                    status: "ready_for_validation",
+                    ingestionId
                 }
             }
         };
 
         console.log(
-            `Ingested ${req.file.originalname}: ` +
+            `Ingestion ${ingestionId} saved for ${req.file.originalname}: ` +
             `${profile.rowCount} rows, ${profile.columnCount} columns`
         );
 
