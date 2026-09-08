@@ -20,7 +20,8 @@ function publicAccount(account) {
         id: account.id,
         businessName: account.business_name,
         email: account.email,
-        role: account.role || "user"
+        role: account.role || "user",
+        accountStatus: account.account_status || "active"
     };
 }
 
@@ -38,10 +39,11 @@ router.post("/register", async (req, res, next) => {
 
         const passwordHash = await bcrypt.hash(password, 10);
         const [result] = await db.execute(
-            `INSERT INTO business_accounts (business_name, email, password_hash, role) VALUES (?, ?, ?, 'user')`,
+            `INSERT INTO business_accounts (business_name, email, password_hash, role, account_status)
+             VALUES (?, ?, ?, 'user', 'active')`,
             [businessName, email, passwordHash]
         );
-        const account = { id: result.insertId, business_name: businessName, email, role: "user" };
+        const account = { id: result.insertId, business_name: businessName, email, role: "user", account_status: "active" };
         return res.status(201).json({ success: true, message: "Business account created successfully", data: { token: createToken(account), account: publicAccount(account) } });
     } catch (error) {
         if (error.code === "ER_DUP_ENTRY") return res.status(409).json({ success: false, message: "An account with this email already exists" });
@@ -56,7 +58,8 @@ router.post("/login", async (req, res, next) => {
         if (!email || !password) return res.status(400).json({ success: false, message: "Email and password are required" });
 
         const [accounts] = await db.execute(
-            `SELECT id, business_name, email, password_hash, role FROM business_accounts WHERE email = ?`,
+            `SELECT id, business_name, email, password_hash, role, account_status
+             FROM business_accounts WHERE email = ?`,
             [email]
         );
         if (accounts.length === 0) return res.status(401).json({ success: false, message: "Invalid email or password" });
@@ -64,6 +67,9 @@ router.post("/login", async (req, res, next) => {
         const account = accounts[0];
         const passwordMatches = await bcrypt.compare(password, account.password_hash);
         if (!passwordMatches) return res.status(401).json({ success: false, message: "Invalid email or password" });
+        if (account.account_status === "disabled") {
+            return res.status(403).json({ success: false, message: "This business account has been disabled by an administrator" });
+        }
 
         return res.json({ success: true, message: "Login successful", data: { token: createToken(account), account: publicAccount(account) } });
     } catch (error) { next(error); }
@@ -72,7 +78,7 @@ router.post("/login", async (req, res, next) => {
 router.get("/me", authMiddleware, async (req, res, next) => {
     try {
         const [accounts] = await db.execute(
-            `SELECT id, business_name, email, role FROM business_accounts WHERE id = ?`,
+            `SELECT id, business_name, email, role, account_status FROM business_accounts WHERE id = ?`,
             [req.user.id]
         );
         if (accounts.length === 0) return res.status(404).json({ success: false, message: "Account not found" });
