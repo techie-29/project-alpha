@@ -43,8 +43,17 @@ CREATE TABLE IF NOT EXISTS ingestion_rows (
     CONSTRAINT uq_ingestion_rows_number UNIQUE (ingestion_id, source_row_number)
 );
 
--- Existing databases created before the admin panel need these once:
--- ALTER TABLE business_accounts ADD COLUMN role ENUM('user', 'admin') NOT NULL DEFAULT 'user' AFTER password_hash;
--- ALTER TABLE business_accounts ADD COLUMN account_status ENUM('active', 'disabled') NOT NULL DEFAULT 'active' AFTER role;
--- Promote a chosen existing account manually after the columns exist:
--- UPDATE business_accounts SET role = 'admin', account_status = 'active' WHERE email = 'your-admin-email@example.com';
+CREATE TABLE IF NOT EXISTS admin_activity_logs (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    admin_account_id INT UNSIGNED NULL,
+    action VARCHAR(60) NOT NULL,
+    target_type VARCHAR(40) NOT NULL,
+    target_id BIGINT UNSIGNED NULL,
+    details_json JSON NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_admin_activity_admin FOREIGN KEY (admin_account_id) REFERENCES business_accounts(id) ON DELETE SET NULL,
+    INDEX idx_admin_activity_created_at (created_at),
+    INDEX idx_admin_activity_admin (admin_account_id)
+);
+
+-- For existing databases, use database/admin_control_migration.sql.
