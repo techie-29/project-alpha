@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS ingestions (
 CREATE TABLE IF NOT EXISTS ingestion_rows (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     ingestion_id INT UNSIGNED NOT NULL,
-    row_number INT UNSIGNED NOT NULL,
+    source_row_number INT UNSIGNED NOT NULL,
     raw_data JSON NOT NULL,
     validation_status VARCHAR(20) NOT NULL DEFAULT 'pending',
     validation_issues JSON NULL,
@@ -39,10 +39,14 @@ CREATE TABLE IF NOT EXISTS ingestion_rows (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_ingestion_rows_ingestion FOREIGN KEY (ingestion_id) REFERENCES ingestions(id) ON DELETE CASCADE,
-    CONSTRAINT uq_ingestion_rows_number UNIQUE (ingestion_id, row_number)
+    CONSTRAINT uq_ingestion_rows_number UNIQUE (ingestion_id, source_row_number)
 );
 
 -- Existing databases created before the admin panel need this once:
 -- ALTER TABLE business_accounts ADD COLUMN role ENUM('user', 'admin') NOT NULL DEFAULT 'user' AFTER password_hash;
 -- Promote a chosen existing account manually after the column exists:
 -- UPDATE business_accounts SET role = 'admin' WHERE email = 'your-admin-email@example.com';
+
+-- NOTE: The running Module 2 persistence service stores row positions in
+-- ingestion_rows.source_row_number. The schema intentionally uses the same
+-- column name so a newly created database matches the application code.
