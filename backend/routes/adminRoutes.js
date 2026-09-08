@@ -9,7 +9,8 @@ router.get("/dashboard", async (req, res, next) => {
             SELECT
                 COUNT(*) AS totalAccounts,
                 COALESCE(SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END), 0) AS adminAccounts,
-                COALESCE(SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END), 0) AS businessAccounts
+                COALESCE(SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END), 0) AS businessAccounts,
+                COALESCE(SUM(CASE WHEN account_status = 'disabled' THEN 1 ELSE 0 END), 0) AS disabledAccounts
             FROM business_accounts
         `);
 
@@ -21,25 +22,13 @@ router.get("/dashboard", async (req, res, next) => {
             FROM ingestions
         `);
 
-        // Count the rows that are actually persisted in MySQL.
-        // This makes the admin dashboard reflect the real ingestion_rows table,
-        // instead of relying only on the row_count metadata stored per upload.
-        const [[storedRowStats]] = await db.execute(`
-            SELECT COUNT(*) AS totalRows
-            FROM ingestion_rows
-        `);
+        const [[storedRowStats]] = await db.execute(`SELECT COUNT(*) AS totalRows FROM ingestion_rows`);
 
         const [recentUploads] = await db.execute(`
-            SELECT
-                i.id,
-                i.original_file_name AS fileName,
-                i.file_format AS fileFormat,
-                i.row_count AS rowCount,
-                i.column_count AS columnCount,
-                i.status,
-                i.created_at AS createdAt,
-                COALESCE(b.business_name, 'Unknown business') AS businessName,
-                b.email
+            SELECT i.id, i.original_file_name AS fileName, i.file_format AS fileFormat,
+                   i.row_count AS rowCount, i.column_count AS columnCount, i.status,
+                   i.created_at AS createdAt,
+                   COALESCE(b.business_name, 'Unknown business') AS businessName, b.email
             FROM ingestions i
             LEFT JOIN business_accounts b ON b.id = i.business_account_id
             ORDER BY i.created_at DESC
@@ -49,77 +38,130 @@ router.get("/dashboard", async (req, res, next) => {
         return res.json({
             success: true,
             data: {
-                stats: {
-                    ...accountStats,
-                    ...ingestionStats,
-                    totalRows: storedRowStats.totalRows
-                },
+                stats: { ...accountStats, ...ingestionStats, totalRows: storedRowStats.totalRows },
                 recentUploads
             }
         });
-    } catch (error) {
-        next(error);
-    }
+    } catch (error) { next(error); }
 });
 
 router.get("/users", async (req, res, next) => {
     try {
         const [users] = await db.execute(`
-            SELECT
-                b.id,
-                b.business_name AS businessName,
-                b.email,
-                b.role,
-                b.created_at AS createdAt,
-                COUNT(i.id) AS uploadCount
+            SELECT b.id, b.business_name AS businessName, b.email, b.role,
+                   b.account_status AS accountStatus, b.created_at AS createdAt,
+                   COUNT(i.id) AS uploadCount
             FROM business_accounts b
             LEFT JOIN ingestions i ON i.business_account_id = b.id
-            GROUP BY b.id, b.business_name, b.email, b.role, b.created_at
+            GROUP BY b.id, b.business_name, b.email, b.role, b.account_status, b.created_at
             ORDER BY b.created_at DESC
         `);
+        return res.json({ success: true, data: { users } });
+    } catch (error) { next(error); }
+});
 
-        return res.json({
-            success: true,
-            data: { users }
-        });
-    } catch (error) {
-        next(error);
-    }
+router.patch("/users/:id/status", async (req, res, next) => {
+    try {
+        const accountId = Number(req.params.id);
+        const status = req.body.status;
+
+        if (!Number.isInteger(accountId) || !["active", "disabled"].includes(status)) {
+            return res.status(400).json({ success: false, message: "Valid account id and status are required" });
+        }
+        if (accountId === req.user.id && status === "disabled") {
+            return res.status(400).json({ success: false, message: "You cannot disable your own admin account" });
+        }
+
+        const [result] = await db.execute(
+            "UPDATE business_accounts SET account_status = ? WHERE id = ?",
+            [status, accountId]
+        );
+        if (result.affectedRows === 0) return res.status(404).json({ success: false, message: "Account not found" });
+
+        return res.json({ success: true, message: `Account ${status}`, data: { accountId, status } });
+    } catch (error) { next(error); }
+});
+
+router.get("/users/:id/datasets", async (req, res, next) => {
+    try {
+        const [datasets] = await db.execute(`
+            SELECT id, original_file_name AS fileName, file_format AS fileFormat,
+                   row_count AS rowCount, column_count AS columnCount, status,
+                   created_at AS createdAt
+            FROM ingestions
+            WHERE business_account_id = ?
+            ORDER BY created_at DESC
+        `, [req.params.id]);
+        return res.json({ success: true, data: { datasets } });
+    } catch (error) { next(error); }
+});
+
+router.delete("/users/:id", async (req, res, next) => {
+    try {
+        const accountId = Number(req.params.id);
+        if (!Number.isInteger(accountId)) return res.status(400).json({ success: false, message: "Invalid account id" });
+        if (accountId === req.user.id) return res.status(400).json({ success: false, message: "You cannot delete your own admin account" });
+
+        const [result] = await db.execute("DELETE FROM business_accounts WHERE id = ?", [accountId]);
+        if (result.affectedRows === 0) return res.status(404).json({ success: false, message: "Account not found" });
+
+        return res.json({ success: true, message: "Business account and its related ingestions were deleted" });
+    } catch (error) { next(error); }
 });
 
 router.get("/datasets", async (req, res, next) => {
     try {
         const [datasets] = await db.execute(`
-            SELECT
-                i.id,
-                i.original_file_name AS fileName,
-                i.file_format AS fileFormat,
-                i.file_size_bytes AS fileSizeBytes,
-                i.sheet_name AS sheetName,
-                i.row_count AS rowCount,
-                i.column_count AS columnCount,
-                i.status,
-                i.created_at AS createdAt,
-                COALESCE(b.business_name, 'Unknown business') AS businessName,
-                b.email
+            SELECT i.id, i.original_file_name AS fileName, i.file_format AS fileFormat,
+                   i.file_size_bytes AS fileSizeBytes, i.sheet_name AS sheetName,
+                   i.row_count AS rowCount, i.column_count AS columnCount,
+                   i.status, i.created_at AS createdAt,
+                   COALESCE(b.business_name, 'Unknown business') AS businessName, b.email
             FROM ingestions i
             LEFT JOIN business_accounts b ON b.id = i.business_account_id
             ORDER BY i.created_at DESC
         `);
+        return res.json({ success: true, data: { datasets } });
+    } catch (error) { next(error); }
+});
 
-        return res.json({
-            success: true,
-            data: { datasets }
-        });
-    } catch (error) {
-        next(error);
-    }
+router.get("/datasets/:id", async (req, res, next) => {
+    try {
+        const [[dataset]] = await db.execute(`
+            SELECT i.id, i.original_file_name AS fileName, i.file_format AS fileFormat,
+                   i.file_size_bytes AS fileSizeBytes, i.sheet_name AS sheetName,
+                   i.row_count AS rowCount, i.column_count AS columnCount,
+                   i.headers_json AS headers, i.profile_json AS profile, i.status,
+                   i.created_at AS createdAt, b.business_name AS businessName, b.email
+            FROM ingestions i
+            LEFT JOIN business_accounts b ON b.id = i.business_account_id
+            WHERE i.id = ?
+        `, [req.params.id]);
+        if (!dataset) return res.status(404).json({ success: false, message: "Dataset not found" });
+
+        const [rows] = await db.execute(`
+            SELECT source_row_number AS rowNumber, raw_data AS rawData
+            FROM ingestion_rows
+            WHERE ingestion_id = ?
+            ORDER BY source_row_number ASC
+            LIMIT 25
+        `, [req.params.id]);
+
+        return res.json({ success: true, data: { dataset, previewRows: rows } });
+    } catch (error) { next(error); }
+});
+
+router.delete("/datasets/:id", async (req, res, next) => {
+    try {
+        const [result] = await db.execute("DELETE FROM ingestions WHERE id = ?", [req.params.id]);
+        if (result.affectedRows === 0) return res.status(404).json({ success: false, message: "Dataset not found" });
+        return res.json({ success: true, message: "Dataset and its stored ingestion rows were deleted" });
+    } catch (error) { next(error); }
 });
 
 router.get("/system", async (req, res, next) => {
     try {
         await db.execute("SELECT 1");
-
         return res.json({
             success: true,
             data: {
@@ -139,9 +181,7 @@ router.get("/system", async (req, res, next) => {
                 ]
             }
         });
-    } catch (error) {
-        next(error);
-    }
+    } catch (error) { next(error); }
 });
 
 module.exports = router;
