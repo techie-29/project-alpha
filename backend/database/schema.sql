@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS business_accounts (
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
+    account_status ENUM('active', 'disabled') NOT NULL DEFAULT 'active',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -42,11 +43,8 @@ CREATE TABLE IF NOT EXISTS ingestion_rows (
     CONSTRAINT uq_ingestion_rows_number UNIQUE (ingestion_id, source_row_number)
 );
 
--- Existing databases created before the admin panel need this once:
+-- Existing databases created before the admin panel need these once:
 -- ALTER TABLE business_accounts ADD COLUMN role ENUM('user', 'admin') NOT NULL DEFAULT 'user' AFTER password_hash;
--- Promote a chosen existing account manually after the column exists:
--- UPDATE business_accounts SET role = 'admin' WHERE email = 'your-admin-email@example.com';
-
--- NOTE: The running Module 2 persistence service stores row positions in
--- ingestion_rows.source_row_number. The schema intentionally uses the same
--- column name so a newly created database matches the application code.
+-- ALTER TABLE business_accounts ADD COLUMN account_status ENUM('active', 'disabled') NOT NULL DEFAULT 'active' AFTER role;
+-- Promote a chosen existing account manually after the columns exist:
+-- UPDATE business_accounts SET role = 'admin', account_status = 'active' WHERE email = 'your-admin-email@example.com';
