@@ -1,5 +1,6 @@
 "use client";
 
+import { runHeaderMapping } from "./services/headerMappingApi";
 import { useEffect, useState } from "react";
 import AuthPage from "./components/AuthPage";
 import Sidebar from "./components/Sidebar";
@@ -57,11 +58,50 @@ export default function App() {
   }
   function resetUpload() { setSelectedFile(null); setError(""); setResult(null); setStatus("idle"); setIsDragging(false); }
   async function handleUpload() {
-    if (!selectedFile) return;
-    setStatus("uploading"); setError("");
-    try { const response = await uploadDataset(selectedFile, token); setResult(response); setStatus("success"); }
-    catch (uploadError) { if (uploadError.status === 401) { handleLogout(); return; } setError(uploadError.message); setStatus("error"); }
+  if (!selectedFile) return;
+
+  setStatus("uploading");
+  setError("");
+
+  try {
+    // MODULE 2
+    const response = await uploadDataset(
+      selectedFile,
+      token
+    );
+
+    // Module 2 gives us the database ingestion ID
+    const ingestionId =
+      response.data.handoff.ingestionId;
+
+    // MODULE 3
+    const mappingResponse =
+      await runHeaderMapping(ingestionId);
+
+    console.log(
+      "Header Mapping Result:",
+      mappingResponse
+    );
+
+    // Store Module 2 + Module 3 results together
+    setResult({
+      ...response,
+      headerMapping: mappingResponse.data
+    });
+
+    setStatus("success");
+
+  } catch (error) {
+    console.error(error);
+
+    setError(
+      error.message ||
+      "Upload or header mapping failed"
+    );
+
+    setStatus("error");
   }
+}
 
   if (authStatus === "checking") return <div className="auth-loading">Checking your session...</div>;
   if (authStatus !== "signed-in") return <AuthPage onAuthenticated={handleAuthenticated}/>;
