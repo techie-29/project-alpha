@@ -22,7 +22,7 @@ function SummaryItem({ label, value, accent }) {
   return <div className={`summary-item ${accent ? "summary-accent" : ""}`}><span>{label}</span><strong>{value ?? "Not available"}</strong></div>;
 }
 
-export default function IngestionResult({ response, selectedFile, onReset }) {
+export default function IngestionResult({ response, selectedFile, onReset, onContinueToMapping }) {
   const result = normalizeIngestionResult(response, selectedFile);
   return <div className="ingestion-result">
     <section className="success-header"><div className="success-icon"><svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg></div><div><span className="eyebrow">Data Ingestion Result</span><h1>Dataset ingested successfully</h1><p>Alpha hashed, parsed, profiled, classified, and saved this file independently. It is now ready for header mapping.</p></div><span className="success-badge"><i/>Complete</span></section>
@@ -32,87 +32,6 @@ export default function IngestionResult({ response, selectedFile, onReset }) {
     {result.warnings.length > 0 && <section className="processing-warnings"><strong>Processing notes</strong>{result.warnings.map((warning) => <p key={warning}>{warning}</p>)}</section>}
     <DatasetStructure columns={result.columns}/>
     <DataPreview rows={result.rows} columns={result.columns}/>
-     {response.headerMapping && (
-  <section className="mapping-card">
-    <div className="mapping-header">
-      <div>
-        <span className="eyebrow">Module 3</span>
-        <h2>Header Mapping</h2>
-        <p>
-          Uploaded headers were aligned with Alpha&apos;s standard Version 1 fields.
-        </p>
-      </div>
-
-      <div className="mapping-score">
-        <strong>
-          {response.headerMapping.summary.mappedHeaders}
-          /
-          {response.headerMapping.summary.totalHeaders}
-        </strong>
-        <span>Mapped</span>
-      </div>
-    </div>
-
-    <div className="mapping-stats">
-      <div>
-        <span>Total Headers</span>
-        <strong>{response.headerMapping.summary.totalHeaders}</strong>
-      </div>
-
-      <div>
-        <span>Mapped</span>
-        <strong>{response.headerMapping.summary.mappedHeaders}</strong>
-      </div>
-
-      <div>
-        <span>Unmapped</span>
-        <strong>{response.headerMapping.summary.unmappedHeaders}</strong>
-      </div>
-    </div>
-
-    <div className="mapping-table-wrapper">
-      <table className="mapping-table">
-        <thead>
-          <tr>
-            <th>Uploaded Header</th>
-            <th>Alpha Field</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {response.headerMapping.mappings.map((mapping, index) => (
-            <tr key={index}>
-              <td>
-                <code>{mapping.originalHeader}</code>
-              </td>
-
-              <td>
-                {mapping.mappedHeader ? (
-                  <code>{mapping.mappedHeader}</code>
-                ) : (
-                  <span className="unmapped-text">Not mapped</span>
-                )}
-              </td>
-
-              <td>
-                <span
-                  className={
-                    mapping.mappingStatus === "mapped"
-                      ? "mapping-status mapped"
-                      : "mapping-status unmapped"
-                  }
-                >
-                  {mapping.mappingStatus}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </section>
-)}
-    <section className="next-stage"><div><span className="eyebrow">Pipeline handoff</span><h2>Ready for header mapping</h2><p>Ingestion is complete. Module 3 will review automatic mapping suggestions and let the user correct unmapped fields before validation.</p></div><div className="result-actions"><button className="secondary-button" onClick={onReset}><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Upload Another Batch</button><button className="future-button" disabled>Continue to Mapping <span>→</span></button></div></section>
+    <section className="next-stage"><div><span className="eyebrow">Pipeline handoff</span><h2>Ready for header mapping</h2><p>Ingestion is complete. Review automatic suggestions and correct any unmapped fields before validation.</p></div><div className="result-actions"><button className="secondary-button" onClick={onReset}><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Upload Another Batch</button><button className="primary-button" type="button" onClick={onContinueToMapping}>Continue to Mapping <span>→</span></button></div></section>
   </div>;
 }

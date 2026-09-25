@@ -12,3 +12,5 @@
 - 2026-09-25: Batch files are processed independently and persisted in `ingestion_batches` plus `ingestion_batch_items`; partial success is an expected result, not a request-level failure.
 - 2026-09-25: Excel processing remains isolated behind `fileprocessingservices.js`; only the first worksheet is ingested and ignored sheets are reported.
 - 2026-09-25: Module 2 ends at `ready_for_mapping`; automatic Module 3 execution was removed from the upload button so each module can be tested and explained separately.
+- 2026-09-25: Confirmed mappings are stored once per ingestion as JSON; reusable templates are business-scoped and keyed by a normalized header-set hash.
+- 2026-09-25: Mapping coverage measures dataset-type critical field groups, with explicit alternatives, while header coverage is reported separately.

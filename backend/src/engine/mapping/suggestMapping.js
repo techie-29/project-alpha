@@ -61,10 +61,31 @@ function suggestHeaderMapping(header, values = []) {
 }
 
 function suggestMappings(headers, rows = []) {
-  return headers.map((header) => ({
+  const suggestions = headers.map((header) => ({
     originalHeader: header,
     ...suggestHeaderMapping(header, rows.map((row) => row?.[header]))
   }));
+
+  const bestByField = new Map();
+  suggestions.forEach((suggestion, index) => {
+    if (!suggestion.field) return;
+    const current = bestByField.get(suggestion.field);
+    if (!current || suggestion.confidence > current.confidence) {
+      bestByField.set(suggestion.field, { index, confidence: suggestion.confidence });
+    }
+  });
+
+  return suggestions.map((suggestion, index) => {
+    if (!suggestion.field || bestByField.get(suggestion.field)?.index === index) {
+      return suggestion;
+    }
+    return {
+      ...suggestion,
+      field: null,
+      confidence: 0,
+      reason: "duplicate_candidate"
+    };
+  });
 }
 
 module.exports = {

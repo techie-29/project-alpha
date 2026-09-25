@@ -48,4 +48,10 @@ describe("V3 header mapping", () => {
     expect(result[0].field).toBe("product_name");
     expect(result[1].field).toBe("quantity");
   });
+
+  it("does not map two source columns to the same canonical field", () => {
+    const result = suggestMappings(["Status", "Order Status"], []);
+    expect(result.filter((mapping) => mapping.field === "status")).toHaveLength(1);
+    expect(result[1].reason).toBe("duplicate_candidate");
+  });
 });

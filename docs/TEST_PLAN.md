@@ -10,6 +10,13 @@
 - Upload API: multipart batch contract, empty batch rejection, account-scoped progress lookup.
 - Frontend: production build and manual queue-state verification.
 
+## Module 3 automated coverage
+
+- Exact aliases, fuzzy suggestions, value-sniff fallback, and duplicate-target prevention.
+- Required-field coverage and missing-critical-field reporting.
+- Stable header signatures, saved-template reuse, manual confirmation, and mapping validation.
+- Account-scoped mapping API load and confirmation contracts.
+
 ## Manual MySQL/API verification
 
 1. Apply schema or migrations 001 and 002.

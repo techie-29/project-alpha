@@ -6,6 +6,7 @@ import Sidebar from "./components/Sidebar";
 import UploadZone from "./components/UploadZone";
 import UploadQueue from "./components/UploadQueue";
 import IngestionResult from "./components/IngestionResult";
+import HeaderMappingWorkspace from "./components/HeaderMappingWorkspace";
 import AdminPanel from "./components/AdminPanel";
 import { getCurrentAccount } from "./services/authApi";
 import { uploadDatasetBatch } from "./services/uploadApi";
@@ -23,6 +24,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [batch, setBatch] = useState(null);
   const [activeResultId, setActiveResultId] = useState(null);
+  const [mappingTargetId, setMappingTargetId] = useState(null);
 
   useEffect(() => {
     if (!token) return;
@@ -58,6 +60,7 @@ export default function App() {
     setError("");
     setBatch(null);
     setActiveResultId(null);
+    setMappingTargetId(null);
     setIsBusy(false);
     setIsDragging(false);
   }
@@ -75,6 +78,7 @@ export default function App() {
     setQueue(items);
     setBatch(null);
     setActiveResultId(null);
+    setMappingTargetId(null);
     setError(files.length > MAX_BATCH_FILES
       ? `Only the first ${MAX_BATCH_FILES} files were added to this batch.`
       : "");
@@ -83,6 +87,12 @@ export default function App() {
   function removeQueueItem(itemId) {
     setQueue((items) => items.filter((item) => item.id !== itemId));
     if (activeResultId === itemId) setActiveResultId(null);
+    if (mappingTargetId === itemId) setMappingTargetId(null);
+  }
+
+  function viewQueueResult(itemId) {
+    setActiveResultId(itemId);
+    setMappingTargetId(null);
   }
 
   async function handleBatchUpload() {
@@ -93,6 +103,7 @@ export default function App() {
     setIsBusy(true);
     setError("");
     setActiveResultId(null);
+    setMappingTargetId(null);
     setQueue((items) => items.map((item) => uploadIds.has(item.id)
       ? { ...item, status: "uploading", progress: 0, error: "" }
       : item));
@@ -197,7 +208,7 @@ export default function App() {
           items={queue}
           onRemove={removeQueueItem}
           onUpload={handleBatchUpload}
-          onViewResult={setActiveResultId}
+          onViewResult={viewQueueResult}
           isBusy={isBusy}
         />}
 
@@ -211,9 +222,15 @@ export default function App() {
           response={activeResult.response}
           selectedFile={activeResult.file}
           onReset={resetUpload}
+          onContinueToMapping={() => setMappingTargetId(activeResult.id)}
         />}
 
-        <footer className="page-footer"><span>ALPHA / MODULES 01 + 02</span><span>Authentication + Batch Data Ingestion</span></footer>
+        {activeResult && mappingTargetId === activeResult.id && <HeaderMappingWorkspace
+          ingestionId={activeResult.response.data.handoff.ingestionId}
+          token={token}
+        />}
+
+        <footer className="page-footer"><span>ALPHA / MODULES 01 + 02 + 03</span><span>Authentication + Ingestion + Header Mapping</span></footer>
       </div>
     </main>
   </div>;

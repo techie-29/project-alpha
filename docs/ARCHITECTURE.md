@@ -54,3 +54,12 @@ The current Modules 1-3 remain the working baseline. New engine modules are intr
 - `GET /api/upload/batches/:batchId` is scoped to the authenticated business and restores persisted progress.
 - The frontend queue uses `queued -> uploading -> processing -> completed|failed`. A completed ingestion hands off as `ready_for_mapping`.
 - Excel uses the first worksheet only, reports ignored worksheets, repairs common two-level merged headers, and converts formatted Excel dates to ISO date strings.
+
+## Module 3 mapping contract
+
+- `GET /api/header-mapping/:ingestionId` returns account-scoped automatic suggestions, confidence, reasons, canonical fields, and required-field coverage.
+- `PUT /api/header-mapping/:ingestionId` validates and confirms manual corrections, then moves the ingestion to `ready_for_validation`.
+- Exact canonical/alias matching runs first, fuzzy matching second, and value sniffing only as a fallback.
+- Two uploaded headers cannot silently target the same canonical field.
+- `dataset_mappings` stores the confirmed mapping and its evidence. `saved_mappings` stores reusable templates keyed by a SHA-256 signature of the normalized header set.
+- Coverage uses dataset-type-specific required field groups and supports valid alternatives such as `product_name|sku` and `revenue|unit_price`.
