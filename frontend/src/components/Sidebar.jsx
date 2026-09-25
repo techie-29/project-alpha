@@ -10,7 +10,7 @@ const navItems = [
   { label: "Insights", icon: "spark", to: "/insights" },
   { label: "Datasets", icon: "grid", to: "/datasets" },
   { label: "Reports", icon: "spark", to: "/reports" },
-  { label: "Settings", icon: "settings", disabled: true },
+  { label: "Settings", icon: "settings", to: "/settings" },
 ];
 
 function NavIcon({ name }) {

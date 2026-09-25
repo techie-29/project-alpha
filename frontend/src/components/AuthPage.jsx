@@ -36,6 +36,13 @@ export default function AuthPage({ onAuthenticated }) {
   }
 
   return <main className="auth-page">
+    <section className="auth-hero">
+      <span className="eyebrow">Explainable business intelligence</span>
+      <h1>From imperfect files to decisions you can verify.</h1>
+      <p>Project Alpha maps, validates, transforms, and analyzes sales and inventory data without hiding the source evidence.</p>
+      <div className="auth-pipeline"><span>Upload</span><i/> <span>Validate</span><i/> <span>Analyze</span><i/> <span>Act</span></div>
+      <ul><li>Adaptive KPIs—no invented zeroes</li><li>Metric-to-source traceability</li><li>Forecasts with measured backtest error</li></ul>
+    </section>
     <section className="auth-card">
       <div className="auth-brand"><span>A</span><div><strong>Project Alpha</strong><small>Business Intelligence</small></div></div>
       <span className="eyebrow">Module 01 / Authentication</span>

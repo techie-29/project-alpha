@@ -14,6 +14,7 @@ const validationRoutes = require("./routes/validationRoutes");
 const transformationRoutes = require("./routes/transformationRoutes");
 const analyticsRoutes = require("./routes/analyticsRoutes");
 const datasetLibraryRoutes = require("./routes/datasetLibraryRoutes");
+const settingsRoutes = require("./routes/settingsRoutes");
 const authMiddleware = require("./middleware/authMiddleware");
 const adminMiddleware = require("./middleware/adminMiddleware");
 
@@ -40,6 +41,7 @@ app.use("/api/validation", authMiddleware, validationRoutes);
 app.use("/api/transformation", authMiddleware, transformationRoutes);
 app.use("/api/analytics", authMiddleware, analyticsRoutes);
 app.use("/api/datasets", authMiddleware, datasetLibraryRoutes);
+app.use("/api/settings", authMiddleware, settingsRoutes);
 
 app.use((err, req, res, next) => {
     const isUploadRequest = req.originalUrl.startsWith("/api/upload");

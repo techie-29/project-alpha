@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS business_accounts (
     password_hash VARCHAR(255) NOT NULL,
     role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
     account_status ENUM('active', 'disabled') NOT NULL DEFAULT 'active',
+    currency_code CHAR(3) NOT NULL DEFAULT 'USD',
+    timezone VARCHAR(80) NOT NULL DEFAULT 'UTC',
+    date_format VARCHAR(20) NOT NULL DEFAULT 'YYYY-MM-DD',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -21,6 +21,7 @@ For an existing Project Alpha database, run these migrations in order:
 3. `backend/database/003_v3_header_mapping.sql`
 4. `backend/database/004_v3_validation.sql`
 5. `backend/database/005_v3_transformation_storage.sql`
+6. `backend/database/006_v3_business_preferences.sql`
 
 ## 2. Configure the backend
 
@@ -73,6 +74,7 @@ All routes below require `Authorization: Bearer <token>` and are scoped from the
 - `GET /api/datasets` and `GET /api/datasets/:id` — dataset library and detail.
 - `PATCH /api/datasets/:id/inclusion` — include or exclude a dataset from subsequent analytics.
 - `GET /api/datasets/:id/export?type=sales|stock|issues&format=csv|xlsx` — normalized and issue exports.
+- `GET/PATCH /api/settings` and `PATCH /api/settings/password` — tenant profile, regional preferences, and password management.
 
 Analytics routes accept `preset=daily|weekly|monthly|quarterly|custom`, custom `from`/`to` dates, and applicable `datasetId`, `product`, `category`, `customer`, and `status` filters.
 

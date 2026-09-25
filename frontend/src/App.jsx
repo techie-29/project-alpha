@@ -20,6 +20,7 @@ const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
 const InsightsPage = lazy(() => import("./pages/InsightsPage"));
 const DatasetLibraryPage = lazy(() => import("./pages/DatasetLibraryPage"));
 const ReportsPage = lazy(() => import("./pages/ReportsPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
 const TOKEN_KEY = "alphaToken";
 
@@ -221,6 +222,7 @@ export default function App() {
         <Route path="/insights" element={<InsightsPage token={token}/>}/>
         <Route path="/datasets" element={<DatasetLibraryPage token={token}/>}/>
         <Route path="/reports" element={<ReportsPage token={token}/>}/>
+        <Route path="/settings" element={<SettingsPage token={token}/>}/>
         <Route path="/upload" element={<div className="page-content">
         <section className="page-header">
           <span className="eyebrow">Data Ingestion</span>
