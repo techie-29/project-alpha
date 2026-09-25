@@ -5,7 +5,9 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "dev": "node --watch app.js"
+    "dev": "node --watch app.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "type": "commonjs",
   "dependencies": {
@@ -13,10 +15,18 @@
     "cors": "^2.8.6",
     "csv-parse": "^7.0.2",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
     "mysql2": "^3.24.2",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "supertest": "^7.1.4",
+    "vitest": "^3.2.4"
   }
 }
