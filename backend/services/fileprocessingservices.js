@@ -2,231 +2,179 @@ const fs = require("fs");
 const path = require("path");
 const { parse } = require("csv-parse/sync");
 const XLSX = require("xlsx");
+const { normalizeTable } = require("../src/engine/ingestion/normalizeTable");
 
 const SUPPORTED_FORMATS = {
-    ".csv": "csv",
-    ".xlsx": "xlsx",
-    ".xls": "xls"
+  ".csv": "csv",
+  ".xlsx": "xlsx",
+  ".xls": "xls"
 };
 
+const MAX_DATA_ROWS = 50000;
+
 function detectFileFormat(file) {
-    if (!file || !file.originalname || !file.path) {
-        throw new Error("Uploaded file information is missing");
-    }
+  if (!file || !file.originalname || !file.path) {
+    throw new Error("Uploaded file information is missing");
+  }
 
-    const extension = path.extname(file.originalname).toLowerCase();
-    const format = SUPPORTED_FORMATS[extension];
-
-    if (!format) {
-        throw new Error("Unsupported file format");
-    }
-
-    return format;
+  const extension = path.extname(file.originalname).toLowerCase();
+  const format = SUPPORTED_FORMATS[extension];
+  if (!format) throw new Error("Unsupported file format");
+  return format;
 }
 
 function parseCSV(filePath) {
-    const content = fs.readFileSync(filePath, "utf8");
-
-    return parse(content, {
-        bom: true,
-        skip_empty_lines: false,
-        relax_column_count: true
-    });
+  const content = fs.readFileSync(filePath, "utf8");
+  return parse(content, {
+    bom: true,
+    skip_empty_lines: false,
+    relax_column_count: true
+  });
 }
 
-function parseExcel(filePath) {
-    const workbook = XLSX.readFile(filePath, {
-        cellDates: true
-    });
-
-    return workbook.SheetNames.map((sheetName) => {
-        const worksheet = workbook.Sheets[sheetName];
-
-        const rows = XLSX.utils.sheet_to_json(worksheet, {
-            header: 1,
-            defval: null,
-            blankrows: true,
-            raw: true
-        });
-
-        return {
-            sheetName,
-            rows
-        };
-    });
+function toIsoDate(value) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return value;
+  return value.toISOString().slice(0, 10);
 }
 
-function isEmpty(value) {
-    return (
-        value === null ||
-        value === undefined ||
-        String(value).trim() === ""
+function mergedValue(rows, merges, rowIndex, columnIndex) {
+  const merge = merges.find(({ s, e }) => (
+    rowIndex >= s.r && rowIndex <= e.r &&
+    columnIndex >= s.c && columnIndex <= e.c
+  ));
+
+  if (!merge) return rows[rowIndex]?.[columnIndex];
+  return rows[merge.s.r]?.[merge.s.c];
+}
+
+/**
+ * Converts a common two-level Excel header (for example, "Order" merged over
+ * "ID" and "Date") into one stable header row. Title-only merged rows are
+ * deliberately ignored so the normal table detector can skip them.
+ */
+function repairMergedHeaders(rows, merges = []) {
+  if (!merges.length) return rows;
+
+  const topRows = [...new Set(merges.map((merge) => merge.s.r))].sort((a, b) => a - b);
+
+  for (const topRow of topRows) {
+    const rowMerges = merges.filter((merge) => merge.s.r === topRow);
+    const bottomRow = Math.max(
+      ...rowMerges.map((merge) => Math.max(merge.e.r, merge.s.r + (merge.e.c > merge.s.c ? 1 : 0)))
     );
-}
-
-function countValues(row) {
-    return row.filter((value) => !isEmpty(value)).length;
-}
-
-function getRowWidth(row) {
-    let lastValueIndex = -1;
-
-    for (let i = 0; i < row.length; i++) {
-        if (!isEmpty(row[i])) {
-            lastValueIndex = i;
-        }
-    }
-
-    return lastValueIndex + 1;
-}
-
-function findHeaderRow(rawRows) {
-    for (let i = 0; i < rawRows.length; i++) {
-        const row = rawRows[i];
-
-        if (countValues(row) < 2) {
-            continue;
-        }
-
-        const width = getRowWidth(row);
-        const possibleHeaders = row.slice(0, width);
-
-        if (possibleHeaders.some(isEmpty)) {
-            continue;
-        }
-
-        let nextRow = null;
-
-        for (let j = i + 1; j < rawRows.length; j++) {
-            if (countValues(rawRows[j]) > 0) {
-                nextRow = rawRows[j];
-                break;
-            }
-        }
-
-        if (!nextRow) {
-            continue;
-        }
-
-        if (getRowWidth(nextRow) > width) {
-            continue;
-        }
-
-        return i;
-    }
-
-    return -1;
-}
-
-function validateHeaders(rawHeaders) {
-    const headers = rawHeaders.map((header) =>
-        String(header).trim()
+    const nextDataRow = rows[bottomRow + 1] || [];
+    const width = Math.max(
+      nextDataRow.length,
+      ...rowMerges.map((merge) => merge.e.c + 1)
     );
 
-    if (headers.some((header) => header === "")) {
-        throw new Error("Dataset contains an empty header");
+    const topLabels = new Set();
+    for (let column = 0; column < width; column += 1) {
+      const value = mergedValue(rows, merges, topRow, column);
+      if (value !== null && value !== undefined && String(value).trim()) {
+        topLabels.add(String(value).trim().toLowerCase());
+      }
     }
 
-    const normalizedHeaders = headers.map((header) =>
-        header.toLowerCase()
-    );
+    const hasVerticalHeader = rowMerges.some((merge) => merge.e.r > merge.s.r);
+    if (topLabels.size < 2 && rowMerges.length < 2 && !hasVerticalHeader) continue;
 
-    if (new Set(normalizedHeaders).size !== normalizedHeaders.length) {
-        throw new Error("Dataset contains duplicate headers");
+    const headers = [];
+    for (let column = 0; column < width; column += 1) {
+      const labels = [];
+      for (let row = topRow; row <= bottomRow; row += 1) {
+        const value = mergedValue(rows, merges, row, column);
+        const label = value === null || value === undefined ? "" : String(value).trim();
+        if (label && labels[labels.length - 1] !== label) labels.push(label);
+      }
+      headers.push(labels.join(" "));
     }
 
-    return headers;
+    if (headers.filter(Boolean).length < 2) continue;
+
+    const repairedRows = rows.map((row) => [...row]);
+    for (let row = topRow; row < bottomRow; row += 1) repairedRows[row] = [];
+    repairedRows[bottomRow] = headers;
+    return repairedRows;
+  }
+
+  return rows;
 }
 
-function normalizeData(rawRows) {
-    if (!Array.isArray(rawRows) || rawRows.length === 0) {
-        throw new Error("Dataset is empty");
+function parseFirstExcelSheet(filePath) {
+  const workbook = XLSX.readFile(filePath, { cellDates: true, cellNF: true });
+  const sheetName = workbook.SheetNames[0];
+
+  if (!sheetName) throw new Error("Excel workbook does not contain a worksheet");
+
+  const worksheet = workbook.Sheets[sheetName];
+  const rawRows = XLSX.utils.sheet_to_json(worksheet, {
+    header: 1,
+    defval: null,
+    blankrows: true,
+    raw: true
+  });
+
+  let excelDateCellCount = 0;
+  const datedRows = rawRows.map((row) => row.map((value) => {
+    const normalized = toIsoDate(value);
+    if (normalized !== value) excelDateCellCount += 1;
+    return normalized;
+  }));
+  const merges = worksheet["!merges"] || [];
+  const rows = repairMergedHeaders(datedRows, merges);
+
+  const ignoredSheetCount = Math.max(0, workbook.SheetNames.length - 1);
+  const warnings = [];
+  if (ignoredSheetCount > 0) {
+    const noun = ignoredSheetCount === 1 ? "worksheet was" : "worksheets were";
+    warnings.push(
+      `Only the first worksheet was processed; ${ignoredSheetCount} additional ${noun} ignored.`
+    );
+  }
+
+  return {
+    sheetName,
+    rows,
+    warnings,
+    workbook: {
+      sheetCount: workbook.SheetNames.length,
+      ignoredSheetCount,
+      mergedRangeCount: merges.length,
+      excelDateCellCount
     }
-
-    const headerIndex = findHeaderRow(rawRows);
-
-    if (headerIndex === -1) {
-        throw new Error("No usable table could be found");
-    }
-
-    const headerRow = rawRows[headerIndex];
-    const width = getRowWidth(headerRow);
-    const headers = validateHeaders(headerRow.slice(0, width));
-    const rows = [];
-
-    for (let i = headerIndex + 1; i < rawRows.length; i++) {
-        const rawRow = rawRows[i];
-
-        if (countValues(rawRow) === 0) {
-            continue;
-        }
-
-        const hasExtraValues = rawRow
-            .slice(width)
-            .some((value) => !isEmpty(value));
-
-        if (hasExtraValues) {
-            continue;
-        }
-
-        const row = {};
-
-        headers.forEach((header, index) => {
-            const value = rawRow[index];
-
-            row[header] = isEmpty(value)
-                ? null
-                : value;
-        });
-
-        rows.push(row);
-    }
-
-    if (rows.length === 0) {
-        throw new Error("Dataset contains headers but no data rows");
-    }
-
-    return {
-        headers,
-        rows
-    };
+  };
 }
 
 function processFile(file) {
-    const format = detectFileFormat(file);
+  const format = detectFileFormat(file);
 
-    if (format === "csv") {
-        const rawRows = parseCSV(file.path);
-        const dataset = normalizeData(rawRows);
+  if (format === "csv") {
+    const dataset = normalizeTable(parseCSV(file.path), { maxRows: MAX_DATA_ROWS });
+    return {
+      format,
+      sheetName: null,
+      warnings: [],
+      workbook: null,
+      ...dataset
+    };
+  }
 
-        return {
-            format,
-            sheetName: null,
-            headers: dataset.headers,
-            rows: dataset.rows
-        };
-    }
+  const sheet = parseFirstExcelSheet(file.path);
+  const dataset = normalizeTable(sheet.rows, { maxRows: MAX_DATA_ROWS });
 
-    const sheets = parseExcel(file.path);
-
-    for (const sheet of sheets) {
-        try {
-            const dataset = normalizeData(sheet.rows);
-
-            return {
-                format,
-                sheetName: sheet.sheetName,
-                headers: dataset.headers,
-                rows: dataset.rows
-            };
-        } catch (error) {
-            // Continue until a usable worksheet is found.
-        }
-    }
-
-    throw new Error("No usable table found in the Excel workbook");
+  return {
+    format,
+    sheetName: sheet.sheetName,
+    warnings: sheet.warnings,
+    workbook: sheet.workbook,
+    ...dataset
+  };
 }
 
 module.exports = {
-    processFile
+  processFile,
+  detectFileFormat,
+  repairMergedHeaders,
+  MAX_DATA_ROWS
 };

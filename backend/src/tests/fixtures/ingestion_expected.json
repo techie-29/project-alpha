@@ -1,0 +1,23 @@
+{
+  "sales_clean": {
+    "rows": 300,
+    "columns": 11,
+    "type": "sales"
+  },
+  "inventory": {
+    "rows": 15,
+    "columns": 5,
+    "first_sheet": "Current Stock",
+    "ignored_sheets": 1
+  },
+  "customers": {
+    "rows": 40,
+    "columns": 4,
+    "type": "customers"
+  },
+  "suppliers": {
+    "rows": 4,
+    "columns": 3,
+    "type": "suppliers"
+  }
+}
