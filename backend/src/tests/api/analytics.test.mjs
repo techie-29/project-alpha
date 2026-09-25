@@ -5,10 +5,10 @@ import routesModule from "../../../routes/analyticsRoutes.js";
 
 const { createAnalyticsRouter } = routesModule;
 
-function appWith(getAnalytics) {
+function appWith(getAnalytics, getTraceability = vi.fn()) {
   const app = express();
   app.use((req, res, next) => { req.user = { id: 7 }; next(); });
-  app.use("/api/analytics", createAnalyticsRouter({ getAnalytics }));
+  app.use("/api/analytics", createAnalyticsRouter({ getAnalytics, getTraceability }));
   app.use((error, req, res, next) => res.status(error.status || 500).json({ message: error.message }));
   return app;
 }
@@ -30,5 +30,12 @@ describe("analytics API", () => {
     expect(response.status).toBe(200);
     expect(response.body.data.insights).toEqual([{ id: "one" }]);
     expect(response.body.data.kpis).toBeUndefined();
+  });
+
+  it("scopes traceability requests to the authenticated tenant", async () => {
+    const getTraceability = vi.fn(async () => ({ metric: "revenue", records: [] }));
+    const response = await request(appWith(vi.fn(), getTraceability)).get("/api/analytics/trace/revenue?preset=weekly");
+    expect(response.status).toBe(200);
+    expect(getTraceability).toHaveBeenCalledWith({ businessAccountId: 7, metric: "revenue", query: expect.objectContaining({ preset: "weekly" }) });
   });
 });

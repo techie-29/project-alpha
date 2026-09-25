@@ -19,16 +19,20 @@ async function loadAnalyticsData({ businessAccountId }) {
     [businessAccountId]
   );
   const [sales] = await db.execute(
-    `SELECT sr.*, DATE_FORMAT(sr.order_date, '%Y-%m-%d') AS order_date
+    `SELECT sr.*, DATE_FORMAT(sr.order_date, '%Y-%m-%d') AS order_date,
+            i.original_file_name AS source_file_name, dm.mapping_json AS source_mapping
      FROM sales_records sr
      INNER JOIN ingestions i ON i.id = sr.ingestion_id
+     LEFT JOIN dataset_mappings dm ON dm.ingestion_id = i.id AND dm.business_account_id = i.business_account_id
      WHERE sr.business_account_id = ? AND i.business_account_id = ? AND i.included = TRUE`,
     [businessAccountId, businessAccountId]
   );
   const [stock] = await db.execute(
-    `SELECT ss.*, DATE_FORMAT(ss.stock_as_of_date, '%Y-%m-%d') AS stock_as_of_date
+    `SELECT ss.*, DATE_FORMAT(ss.stock_as_of_date, '%Y-%m-%d') AS stock_as_of_date,
+            i.original_file_name AS source_file_name, dm.mapping_json AS source_mapping
      FROM stock_snapshots ss
      INNER JOIN ingestions i ON i.id = ss.ingestion_id
+     LEFT JOIN dataset_mappings dm ON dm.ingestion_id = i.id AND dm.business_account_id = i.business_account_id
      WHERE ss.business_account_id = ? AND i.business_account_id = ? AND i.included = TRUE`,
     [businessAccountId, businessAccountId]
   );

@@ -1,7 +1,7 @@
 const express = require("express");
-const { getAnalytics: defaultGetAnalytics } = require("../src/services/analyticsService");
+const { getAnalytics: defaultGetAnalytics, getTraceability: defaultGetTraceability } = require("../src/services/analyticsService");
 
-function createAnalyticsRouter({ getAnalytics = defaultGetAnalytics } = {}) {
+function createAnalyticsRouter({ getAnalytics = defaultGetAnalytics, getTraceability = defaultGetTraceability } = {}) {
   const router = express.Router();
 
   async function analytics(req) {
@@ -10,6 +10,12 @@ function createAnalyticsRouter({ getAnalytics = defaultGetAnalytics } = {}) {
 
   router.get("/overview", async (req, res, next) => {
     try { return res.json({ success: true, data: await analytics(req) }); } catch (error) { next(error); }
+  });
+  router.get("/trace/:metric", async (req, res, next) => {
+    try {
+      const data = await getTraceability({ businessAccountId: req.user.id, metric: req.params.metric, query: req.query });
+      return res.json({ success: true, data });
+    } catch (error) { next(error); }
   });
   router.get("/sales", async (req, res, next) => {
     try {
