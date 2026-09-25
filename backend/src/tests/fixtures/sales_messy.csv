@@ -1,0 +1,8 @@
+﻿Order ID,Order Date,Item Name,Qty Sold,Selling Price,Client Email,Status,Status
+A-1001,2026-09-01,Trail Helmet,2,"₹1,200.50",priya@example.com,Complete,paid
+A-1002,01/09/2026,Riding Gloves,3,"1.200,50",bad-email,Pending,pending
+A-1003,Sep 1 26,Rain Jacket,-1,(200),arun@example.com,Cancelled,cancelled
+A-1003,Sep 1 26,Rain Jacket,-1,(200),arun@example.com,Cancelled,cancelled
+A-1004,31/02/2026,Tank Bag,text,N/A,,Complete,paid
+
+A-1005,2026-09-05,Phone Mount,1,450,dev@example.com,Complete,paid,unexpected

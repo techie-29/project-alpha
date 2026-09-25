@@ -3,11 +3,17 @@
 Project Alpha currently combines:
 
 - Module 1: MySQL business registration, login, JWT sessions, and protected APIs.
-- Module 2: CSV/Excel upload, extraction, technical profiling, and paginated React preview.
+- Module 2: multi-file CSV/Excel batches, hashing and duplicate detection, extraction, profiling, dataset classification, persistent per-file progress, and paginated React previews.
+- Module 3 foundation: canonical fields plus alias, fuzzy, confidence/reason, and basic value-sniffing engines. The final mapping workflow follows after Module 2 verification.
 
 ## 1. Prepare MySQL
 
-Run `backend/database/schema.sql` in MySQL Workbench.
+For a fresh database, run `backend/database/schema.sql` in MySQL Workbench.
+
+For an existing Project Alpha database, run these migrations in order:
+
+1. `backend/database/001_v3_ingestion_foundation.sql`
+2. `backend/database/002_v3_ingestion_batches.sql`
 
 ## 2. Configure the backend
 
@@ -35,8 +41,22 @@ Open the Vite URL, normally `http://localhost:5173`.
 
 1. Create a business account.
 2. Sign in (registration also starts a signed-in session).
-3. Upload a `.csv`, `.xlsx`, or `.xls` dataset smaller than 10 MB.
-4. Check file metadata, dataset structure, and the five-row paginated preview.
-5. Sign out and confirm the upload workspace is no longer accessible.
+3. Select up to 10 `.csv`, `.xlsx`, or `.xls` datasets, each smaller than 10 MB and 50,000 rows.
+4. Start the batch and confirm each file reaches its own completed or failed state.
+5. Check file metadata, detected dataset type, skipped-row count, structure, and paginated preview.
+6. Upload the same file again and confirm duplicate content is rejected without affecting other files in the batch.
+7. Sign out and confirm the upload workspace is no longer accessible.
+
+## 5. Run verification
+
+```bash
+cd backend
+npm test
+
+cd ../frontend
+npm run build
+```
+
+The deterministic fixtures live in `backend/src/tests/fixtures`. Rebuild them with `node src/tests/fixtures/generateFixtures.cjs` from the backend folder.
 
 Never commit `backend/.env`, `node_modules`, uploaded files, or database passwords.

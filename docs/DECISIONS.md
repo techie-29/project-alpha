@@ -8,3 +8,7 @@
 - 2026-09-25: Mapping suggestions expose confidence and reason; the user remains the final authority.
 - 2026-09-25: Missing analytical inputs produce unavailable states, never invented zero values.
 - 2026-09-25: Existing CommonJS runtime remains temporarily during the non-breaking foundation slice; ES module conversion will be a dedicated migration after tests are in place.
+- 2026-09-25: Module 2 batches accept at most 10 files; limits are 10 MB and 50,000 extracted rows per file.
+- 2026-09-25: Batch files are processed independently and persisted in `ingestion_batches` plus `ingestion_batch_items`; partial success is an expected result, not a request-level failure.
+- 2026-09-25: Excel processing remains isolated behind `fileprocessingservices.js`; only the first worksheet is ingested and ignored sheets are reported.
+- 2026-09-25: Module 2 ends at `ready_for_mapping`; automatic Module 3 execution was removed from the upload button so each module can be tested and explained separately.

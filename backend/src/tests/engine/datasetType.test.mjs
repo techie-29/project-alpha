@@ -24,6 +24,15 @@ describe("dataset type detection", () => {
     expect(result.type).toBe("inventory");
   });
 
+  it("does not misclassify a supplier directory as customer data", () => {
+    const result = detectDatasetType(
+      ["Supplier Name", "Region", "Phone"],
+      [{ "Supplier Name": "Peak Supply", Region: "North", Phone: "9000000001" }]
+    );
+
+    expect(result.type).toBe("suppliers");
+  });
+
   it("returns unknown instead of guessing unsupported data", () => {
     expect(detectDatasetType(["Colour", "Comment"], []).type).toBe("unknown");
   });

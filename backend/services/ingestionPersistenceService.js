@@ -2,14 +2,19 @@ const db = require("../config/db");
 
 const ROW_BATCH_SIZE = 250;
 
-async function insertRows(connection, ingestionId, rows) {
+async function insertRows(connection, ingestionId, rows, sourceRowNumbers = []) {
   for (let start = 0; start < rows.length; start += ROW_BATCH_SIZE) {
     const batch = rows.slice(start, start + ROW_BATCH_SIZE);
     const placeholders = batch.map(() => "(?, ?, ?)").join(", ");
     const values = [];
 
     batch.forEach((row, index) => {
-      values.push(ingestionId, start + index + 1, JSON.stringify(row));
+      const rowIndex = start + index;
+      values.push(
+        ingestionId,
+        sourceRowNumbers[rowIndex] ?? rowIndex + 1,
+        JSON.stringify(row)
+      );
     });
 
     await connection.execute(
@@ -70,7 +75,12 @@ async function saveIngestion({
       ]
     );
 
-    await insertRows(connection, result.insertId, dataset.rows);
+    await insertRows(
+      connection,
+      result.insertId,
+      dataset.rows,
+      dataset.sourceRowNumbers
+    );
     await connection.commit();
     return result.insertId;
   } catch (error) {

@@ -42,8 +42,17 @@ SET @sql = IF(
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- Existing rows may not have a hash. New V3 uploads will.
--- The generated column makes NULL legacy hashes coexist safely while enforcing
--- one non-null hash per business.
-CREATE UNIQUE INDEX idx_ingestions_business_file_hash
-ON ingestions (business_account_id, file_hash);
+-- Existing rows may not have a hash. MySQL unique indexes allow multiple NULL
+-- values, so legacy rows coexist while new non-null hashes stay unique.
+SET @has_hash_index = (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'ingestions'
+    AND INDEX_NAME = 'idx_ingestions_business_file_hash'
+);
+SET @sql = IF(
+  @has_hash_index = 0,
+  'CREATE UNIQUE INDEX idx_ingestions_business_file_hash ON ingestions (business_account_id, file_hash)',
+  'SELECT "idx_ingestions_business_file_hash already exists"'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

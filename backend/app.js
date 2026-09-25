@@ -29,9 +29,18 @@ app.use((err, req, res, next) => {
     const isUploadRequest = req.originalUrl.startsWith("/api/upload");
     const status = err instanceof multer.MulterError ? 400 : err.status || (isUploadRequest ? 400 : 500);
     if (status >= 500) console.error(err);
-    return res.status(status).json({ success: false, message: status >= 500 ? "Internal server error" : err.message });
+    return res.status(status).json({
+        success: false,
+        code: err.code || undefined,
+        message: status >= 500 ? "Internal server error" : err.message,
+        details: status < 500 ? err.details : undefined
+    });
 });
 
-app.listen(PORT, () => {
-    console.log(`Project Alpha backend is running on port ${PORT}`);
-});
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Project Alpha backend is running on port ${PORT}`);
+    });
+}
+
+module.exports = app;

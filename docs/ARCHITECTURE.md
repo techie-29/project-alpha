@@ -43,3 +43,14 @@ Every business-owned query is scoped by the authenticated account from the verif
 ## Upgrade strategy
 
 The current Modules 1-3 remain the working baseline. New engine modules are introduced beside them first, tested, then routes/services are migrated incrementally. main must remain demo-safe.
+
+## Module 2 batch contract
+
+- `POST /api/upload` remains the backward-compatible single-file endpoint.
+- `POST /api/upload/batch` accepts the multipart field `files` with 1-10 CSV/XLS/XLSX files.
+- Every file has a 10 MB and 50,000 extracted-row limit.
+- Files are hashed, duplicate-checked, parsed, profiled, classified, and persisted independently. One failure never rolls back another file.
+- `ingestion_batches` stores persistent totals and final state. `ingestion_batch_items` stores ordered per-file state, ingestion link, and safe error details.
+- `GET /api/upload/batches/:batchId` is scoped to the authenticated business and restores persisted progress.
+- The frontend queue uses `queued -> uploading -> processing -> completed|failed`. A completed ingestion hands off as `ready_for_mapping`.
+- Excel uses the first worksheet only, reports ignored worksheets, repairs common two-level merged headers, and converts formatted Excel dates to ISO date strings.

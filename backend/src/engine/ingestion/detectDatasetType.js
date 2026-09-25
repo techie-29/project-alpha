@@ -2,11 +2,11 @@ const { normalizeHeader } = require("../mapping/canonicalFields");
 const { suggestMappings } = require("../mapping/suggestMapping");
 
 const TYPE_FIELDS = {
-  sales: ["order_id", "order_date", "quantity", "revenue", "unit_price"],
-  inventory: ["stock_qty", "reorder_level", "stock_as_of_date"],
-  customers: ["customer_id", "customer_name", "customer_email", "customer_phone", "region"],
-  products: ["product_name", "sku", "category", "unit_price", "cost_price"],
-  suppliers: ["supplier_name"]
+  sales: { order_id: 2, order_date: 2, quantity: 1, revenue: 2, unit_price: 1 },
+  inventory: { stock_qty: 2, reorder_level: 2, stock_as_of_date: 1 },
+  customers: { customer_id: 2, customer_name: 2, customer_email: 2, customer_phone: 1, region: 1 },
+  products: { product_name: 1.5, sku: 1.5, category: 1, unit_price: 1, cost_price: 1 },
+  suppliers: { supplier_name: 3 }
 };
 
 function detectDatasetType(headers, rows = []) {
@@ -16,7 +16,10 @@ function detectDatasetType(headers, rows = []) {
 
   const scores = Object.entries(TYPE_FIELDS).map(([type, fields]) => ({
     type,
-    score: fields.filter((field) => mappedFields.has(field)).length
+    score: Object.entries(fields).reduce(
+      (score, [field, weight]) => score + (mappedFields.has(field) ? weight : 0),
+      0
+    )
   })).sort((a, b) => b.score - a.score);
 
   const best = scores[0];
@@ -24,8 +27,9 @@ function detectDatasetType(headers, rows = []) {
     return { type: "unknown", confidence: 0, evidence: [] };
   }
 
-  const evidence = TYPE_FIELDS[best.type].filter((field) => mappedFields.has(field));
-  const confidence = Math.min(1, best.score / Math.min(3, TYPE_FIELDS[best.type].length));
+  const evidence = Object.keys(TYPE_FIELDS[best.type])
+    .filter((field) => mappedFields.has(field));
+  const confidence = Math.min(1, best.score / 5);
 
   return {
     type: best.type,

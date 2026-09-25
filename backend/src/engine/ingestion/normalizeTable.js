@@ -21,7 +21,7 @@ function findHeaderRow(rawRows) {
 
     const width = getRowWidth(row);
     const possibleHeaders = row.slice(0, width);
-    if (possibleHeaders.some(isEmpty)) continue;
+    if (possibleHeaders.every(isEmpty)) continue;
 
     let nextRow = null;
     for (let next = index + 1; next < rawRows.length; next += 1) {
@@ -31,7 +31,7 @@ function findHeaderRow(rawRows) {
       }
     }
 
-    if (!nextRow || getRowWidth(nextRow) > width) continue;
+    if (!nextRow) continue;
     return index;
   }
   return -1;
@@ -40,9 +40,9 @@ function findHeaderRow(rawRows) {
 function makeUniqueHeaders(rawHeaders) {
   const counts = new Map();
 
-  return rawHeaders.map((header) => {
-    const base = String(header).trim();
-    if (!base) throw new Error("Dataset contains an empty header");
+  return rawHeaders.map((header, index) => {
+    const text = header === null || header === undefined ? "" : String(header).trim();
+    const base = text || `Column_${index + 1}`;
 
     const key = base.toLowerCase();
     const count = (counts.get(key) || 0) + 1;
@@ -52,10 +52,13 @@ function makeUniqueHeaders(rawHeaders) {
   });
 }
 
-function normalizeTable(rawRows) {
+function normalizeTable(rawRows, options = {}) {
   if (!Array.isArray(rawRows) || rawRows.length === 0) {
     throw new Error("Dataset is empty");
   }
+
+  const maxRows = options.maxRows ?? 50000;
+  const sourceRowNumbers = options.sourceRowNumbers;
 
   const headerIndex = findHeaderRow(rawRows);
   if (headerIndex === -1) throw new Error("No usable table could be found");
@@ -63,6 +66,7 @@ function normalizeTable(rawRows) {
   const width = getRowWidth(rawRows[headerIndex]);
   const headers = makeUniqueHeaders(rawRows[headerIndex].slice(0, width));
   const rows = [];
+  const normalizedSourceRowNumbers = [];
   const skippedRows = [];
 
   for (let index = headerIndex + 1; index < rawRows.length; index += 1) {
@@ -71,7 +75,10 @@ function normalizeTable(rawRows) {
 
     const hasExtraValues = rawRow.slice(width).some((value) => !isEmpty(value));
     if (hasExtraValues) {
-      skippedRows.push({ sourceRowNumber: index + 1, reason: "extra_values" });
+      skippedRows.push({
+        sourceRowNumber: sourceRowNumbers?.[index] ?? index + 1,
+        reason: "extra_values"
+      });
       continue;
     }
 
@@ -82,11 +89,25 @@ function normalizeTable(rawRows) {
     });
 
     rows.push(row);
+    normalizedSourceRowNumbers.push(sourceRowNumbers?.[index] ?? index + 1);
+
+    if (rows.length > maxRows) {
+      const error = new Error(`Dataset exceeds the maximum of ${maxRows} data rows`);
+      error.status = 422;
+      error.code = "ROW_LIMIT_EXCEEDED";
+      throw error;
+    }
   }
 
   if (rows.length === 0) throw new Error("Dataset contains headers but no data rows");
 
-  return { headers, rows, headerRowNumber: headerIndex + 1, skippedRows };
+  return {
+    headers,
+    rows,
+    headerRowNumber: sourceRowNumbers?.[headerIndex] ?? headerIndex + 1,
+    sourceRowNumbers: normalizedSourceRowNumbers,
+    skippedRows
+  };
 }
 
 module.exports = {
