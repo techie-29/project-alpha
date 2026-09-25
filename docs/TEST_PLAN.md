@@ -24,6 +24,13 @@
 - Required values, invalid email, impossible quantities/stock, duplicates, suspicious values, and partial-row continuation.
 - Validation service mapping guard, persistence handoff, and account-scoped API contracts.
 
+## Modules 5–6 automated coverage
+
+- Revenue/profit calculations, honest unavailable profit, status normalization, product/customer keys, and stock-health derivation.
+- Skipped-row exclusion plus product and supplier record generation.
+- Quality-score formula and bounds.
+- Transformation validation guard, persistence handoff, and account-scoped API contract.
+
 ## Manual MySQL/API verification
 
 1. Apply schema or migrations 001 and 002.

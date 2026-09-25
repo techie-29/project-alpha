@@ -5,7 +5,7 @@ function Summary({ label, value, tone = "" }) {
   return <div className={`validation-stat ${tone}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
-export default function ValidationWorkspace({ ingestionId, token }) {
+export default function ValidationWorkspace({ ingestionId, token, onContinue }) {
   const [result, setResult] = useState(null);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
@@ -48,6 +48,6 @@ export default function ValidationWorkspace({ ingestionId, token }) {
       <div className="validation-section-title"><h3>Row outcomes</h3><span>First {result.returnedRowCount} rows shown</span></div>
       <div className="row-outcomes">{result.rows.map((row) => <div className={`row-outcome outcome-${row.status}`} key={row.sourceRowNumber}><strong>Row {row.sourceRowNumber}</strong><span>{row.status}</span><small>{row.issues.length} issue{row.issues.length === 1 ? "" : "s"}</small></div>)}</div>
     </div>
-    <div className="next-stage"><div><span className="eyebrow">Pipeline handoff</span><h2>Ready for transformation</h2><p>Only valid and repaired rows will be normalized into structured business records. Skipped rows remain traceable with their reasons.</p></div><button className="future-button" disabled>Continue to Transformation <span>→</span></button></div>
+    <div className="next-stage"><div><span className="eyebrow">Pipeline handoff</span><h2>Ready for transformation</h2><p>Only valid and repaired rows will be normalized into structured business records. Skipped rows remain traceable with their reasons.</p></div><button className="primary-button" type="button" onClick={onContinue}>Continue to Transformation <span>→</span></button></div>
   </section>;
 }

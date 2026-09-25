@@ -72,3 +72,12 @@ The current Modules 1-3 remain the working baseline. New engine modules are intr
 - Every row ends as `valid`, `repaired`, or `skipped`. One bad row never rejects the dataset.
 - Every repair and rejection produces a structured issue. Raw values, normalized candidates, repaired fields, and source row numbers remain linked.
 - `validation_issues` stores issue records while `ingestion_rows` stores row status, issue JSON, and the validated canonical candidate.
+
+## Modules 5–6 transformation and storage contract
+
+- `POST /api/transformation/:ingestionId/run` transforms accepted validation rows and stores typed records transactionally; skipped rows remain only in the traceability chain.
+- Revenue is supplied or calculated as `quantity × unit_price − discount`. Profit is supplied or calculated as `revenue − quantity × cost_price`; unavailable cost produces `null`, never zero.
+- Stock status is derived as out-of-stock, low-stock, or healthy from stock and reorder level.
+- `sales_records`, `stock_snapshots`, `customer_records`, `product_records`, and `supplier_records` all retain business, ingestion, and source-row keys plus raw evidence.
+- The dataset date range, transformation summary, status, and documented quality-score breakdown are persisted on `ingestions`.
+- Quality score uses the canonical formula: 40% validation success, 30% required mapping coverage, 20% duplicate-free rate, and 10% critical-field completeness.

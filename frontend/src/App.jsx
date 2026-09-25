@@ -8,6 +8,7 @@ import UploadQueue from "./components/UploadQueue";
 import IngestionResult from "./components/IngestionResult";
 import HeaderMappingWorkspace from "./components/HeaderMappingWorkspace";
 import ValidationWorkspace from "./components/ValidationWorkspace";
+import TransformationWorkspace from "./components/TransformationWorkspace";
 import AdminPanel from "./components/AdminPanel";
 import { getCurrentAccount } from "./services/authApi";
 import { uploadDatasetBatch } from "./services/uploadApi";
@@ -27,6 +28,7 @@ export default function App() {
   const [activeResultId, setActiveResultId] = useState(null);
   const [mappingTargetId, setMappingTargetId] = useState(null);
   const [validationTargetId, setValidationTargetId] = useState(null);
+  const [transformationTargetId, setTransformationTargetId] = useState(null);
 
   useEffect(() => {
     if (!token) return;
@@ -64,6 +66,7 @@ export default function App() {
     setActiveResultId(null);
     setMappingTargetId(null);
     setValidationTargetId(null);
+    setTransformationTargetId(null);
     setIsBusy(false);
     setIsDragging(false);
   }
@@ -83,6 +86,7 @@ export default function App() {
     setActiveResultId(null);
     setMappingTargetId(null);
     setValidationTargetId(null);
+    setTransformationTargetId(null);
     setError(files.length > MAX_BATCH_FILES
       ? `Only the first ${MAX_BATCH_FILES} files were added to this batch.`
       : "");
@@ -93,12 +97,14 @@ export default function App() {
     if (activeResultId === itemId) setActiveResultId(null);
     if (mappingTargetId === itemId) setMappingTargetId(null);
     if (validationTargetId === itemId) setValidationTargetId(null);
+    if (transformationTargetId === itemId) setTransformationTargetId(null);
   }
 
   function viewQueueResult(itemId) {
     setActiveResultId(itemId);
     setMappingTargetId(null);
     setValidationTargetId(null);
+    setTransformationTargetId(null);
   }
 
   async function handleBatchUpload() {
@@ -111,6 +117,7 @@ export default function App() {
     setActiveResultId(null);
     setMappingTargetId(null);
     setValidationTargetId(null);
+    setTransformationTargetId(null);
     setQueue((items) => items.map((item) => uploadIds.has(item.id)
       ? { ...item, status: "uploading", progress: 0, error: "" }
       : item));
@@ -232,6 +239,7 @@ export default function App() {
           onContinueToMapping={() => {
             setMappingTargetId(activeResult.id);
             setValidationTargetId(null);
+            setTransformationTargetId(null);
           }}
         />}
 
@@ -244,9 +252,15 @@ export default function App() {
         {activeResult && validationTargetId === activeResult.id && <ValidationWorkspace
           ingestionId={activeResult.response.data.handoff.ingestionId}
           token={token}
+          onContinue={() => setTransformationTargetId(activeResult.id)}
         />}
 
-        <footer className="page-footer"><span>ALPHA / MODULES 01–04</span><span>Authentication + Ingestion + Mapping + Validation</span></footer>
+        {activeResult && transformationTargetId === activeResult.id && <TransformationWorkspace
+          ingestionId={activeResult.response.data.handoff.ingestionId}
+          token={token}
+        />}
+
+        <footer className="page-footer"><span>ALPHA / MODULES 01–06</span><span>Authentication through Structured Storage</span></footer>
       </div>
     </main>
   </div>;

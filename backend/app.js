@@ -9,6 +9,7 @@ const authRoutes = require("./routes/authRoutes");
 const uploadRoutes = require("./routes/uploadroutes");
 const adminRoutes = require("./routes/adminRoutes");
 const validationRoutes = require("./routes/validationRoutes");
+const transformationRoutes = require("./routes/transformationRoutes");
 const authMiddleware = require("./middleware/authMiddleware");
 const adminMiddleware = require("./middleware/adminMiddleware");
 
@@ -26,6 +27,7 @@ app.use("/api/upload", authMiddleware, uploadRoutes);
 app.use("/api/admin", authMiddleware, adminMiddleware, adminRoutes);
 app.use("/api/header-mapping",authMiddleware,headerMappingRoutes);
 app.use("/api/validation", authMiddleware, validationRoutes);
+app.use("/api/transformation", authMiddleware, transformationRoutes);
 
 app.use((err, req, res, next) => {
     const isUploadRequest = req.originalUrl.startsWith("/api/upload");
