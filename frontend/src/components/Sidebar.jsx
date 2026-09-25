@@ -1,8 +1,15 @@
+import { NavLink } from "react-router-dom";
+
 const navItems = [
-  { label: "Dashboard", icon: "grid", disabled: true },
-  { label: "Upload", icon: "upload", active: true },
-  { label: "Analytics", icon: "chart", disabled: true },
-  { label: "Insights", icon: "spark", disabled: true },
+  { label: "Dashboard", icon: "grid", to: "/dashboard" },
+  { label: "Upload", icon: "upload", to: "/upload" },
+  { label: "Sales", icon: "chart", to: "/analytics/sales" },
+  { label: "Products", icon: "chart", to: "/analytics/products" },
+  { label: "Inventory", icon: "chart", to: "/analytics/inventory" },
+  { label: "Customers", icon: "chart", to: "/analytics/customers" },
+  { label: "Insights", icon: "spark", to: "/insights" },
+  { label: "Datasets", icon: "grid", to: "/datasets" },
+  { label: "Reports", icon: "spark", to: "/reports" },
   { label: "Settings", icon: "settings", disabled: true },
 ];
 
@@ -20,7 +27,7 @@ function NavIcon({ name }) {
 export default function Sidebar() {
   return <aside className="sidebar">
     <div className="brand"><div className="brand-mark">A</div><div><strong>Alpha</strong><span>Business Intelligence</span></div></div>
-    <nav aria-label="Primary navigation"><p className="nav-label">Workspace</p><ul>{navItems.map((item) => <li key={item.label}><button className={`nav-item ${item.active ? "active" : ""}`} disabled={item.disabled} aria-current={item.active ? "page" : undefined}><NavIcon name={item.icon}/><span>{item.label}</span>{item.disabled && <small>Soon</small>}</button></li>)}</ul></nav>
+    <nav aria-label="Primary navigation"><p className="nav-label">Workspace</p><ul>{navItems.map((item) => <li key={item.label}>{item.disabled ? <button className="nav-item" disabled><NavIcon name={item.icon}/><span>{item.label}</span><small>Soon</small></button> : <NavLink className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`} to={item.to}><NavIcon name={item.icon}/><span>{item.label}</span></NavLink>}</li>)}</ul></nav>
     <div className="sidebar-footer"><span className="status-dot"/>System ready</div>
   </aside>;
 }

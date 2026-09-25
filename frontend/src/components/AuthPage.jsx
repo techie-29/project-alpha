@@ -45,7 +45,7 @@ export default function AuthPage({ onAuthenticated }) {
       <form onSubmit={handleSubmit}>
         {isRegistering && <label>Business name<input type="text" value={businessName} onChange={(event) => setBusinessName(event.target.value)} autoComplete="organization" required/></label>}
         <label>Email address<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required/></label>
-        <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={isRegistering ? "new-password" : "current-password"} minLength="6" required/></label>
+        <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={isRegistering ? "new-password" : "current-password"} minLength={isRegistering ? 8 : 1} maxLength="128" required/></label>
 
         {error && <div className="auth-error" role="alert">{error}</div>}
 

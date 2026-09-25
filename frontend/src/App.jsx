@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import AuthPage from "./components/AuthPage";
 import Sidebar from "./components/Sidebar";
 import UploadZone from "./components/UploadZone";
@@ -13,6 +14,12 @@ import AdminPanel from "./components/AdminPanel";
 import { getCurrentAccount } from "./services/authApi";
 import { uploadDatasetBatch } from "./services/uploadApi";
 import { makeQueueItems, MAX_BATCH_FILES } from "./utils/uploadQueue";
+
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
+const InsightsPage = lazy(() => import("./pages/InsightsPage"));
+const DatasetLibraryPage = lazy(() => import("./pages/DatasetLibraryPage"));
+const ReportsPage = lazy(() => import("./pages/ReportsPage"));
 
 const TOKEN_KEY = "alphaToken";
 
@@ -204,7 +211,17 @@ export default function App() {
         </div>
       </header>
 
-      <div className="page-content">
+      <Suspense fallback={<div className="page-content"><div className="analytics-loading"><span className="spinner"/>Loading workspace…</div></div>}><Routes>
+        <Route path="/" element={<Navigate to="/dashboard" replace/>}/>
+        <Route path="/dashboard" element={<DashboardPage token={token}/>}/>
+        <Route path="/analytics/sales" element={<AnalyticsPage token={token} kind="sales"/>}/>
+        <Route path="/analytics/products" element={<AnalyticsPage token={token} kind="products"/>}/>
+        <Route path="/analytics/inventory" element={<AnalyticsPage token={token} kind="inventory"/>}/>
+        <Route path="/analytics/customers" element={<AnalyticsPage token={token} kind="customers"/>}/>
+        <Route path="/insights" element={<InsightsPage token={token}/>}/>
+        <Route path="/datasets" element={<DatasetLibraryPage token={token}/>}/>
+        <Route path="/reports" element={<ReportsPage token={token}/>}/>
+        <Route path="/upload" element={<div className="page-content">
         <section className="page-header">
           <span className="eyebrow">Data Ingestion</span>
           <h1>Upload Dataset Batch</h1>
@@ -261,7 +278,9 @@ export default function App() {
         />}
 
         <footer className="page-footer"><span>ALPHA / MODULES 01–06</span><span>Authentication through Structured Storage</span></footer>
-      </div>
+      </div>}/>
+        <Route path="*" element={<Navigate to="/dashboard" replace/>}/>
+      </Routes></Suspense>
     </main>
   </div>;
 }
