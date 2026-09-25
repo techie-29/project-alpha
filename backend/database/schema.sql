@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS ingestions (
     original_file_name VARCHAR(255) NOT NULL,
     file_format VARCHAR(10) NOT NULL,
     file_size_bytes INT UNSIGNED NOT NULL,
+    file_hash CHAR(64) NULL,
+    dataset_type VARCHAR(40) NULL,
+    included BOOLEAN NOT NULL DEFAULT TRUE,
     sheet_name VARCHAR(255) NULL,
     row_count INT UNSIGNED NOT NULL,
     column_count INT UNSIGNED NOT NULL,
@@ -26,7 +29,8 @@ CREATE TABLE IF NOT EXISTS ingestions (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_ingestions_business_account FOREIGN KEY (business_account_id) REFERENCES business_accounts(id) ON DELETE CASCADE,
-    INDEX idx_ingestions_business_account_created_at (business_account_id, created_at)
+    INDEX idx_ingestions_business_account_created_at (business_account_id, created_at),
+    UNIQUE INDEX idx_ingestions_business_file_hash (business_account_id, file_hash)
 );
 
 CREATE TABLE IF NOT EXISTS ingestion_rows (
