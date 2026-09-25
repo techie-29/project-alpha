@@ -32,6 +32,7 @@ export default function HeaderMappingWorkspace({ ingestionId, token, onConfirmed
       setWorkspace(response.data);
       setMappings(response.data.mappings);
       setStatus(response.data.status === "ready_for_validation" ? "confirmed" : "editing");
+      if (response.data.status === "ready_for_validation") onConfirmed?.(response.data);
     }).catch((requestError) => {
       if (!active) return;
       setError(requestError.message);

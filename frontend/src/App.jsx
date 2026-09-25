@@ -7,6 +7,7 @@ import UploadZone from "./components/UploadZone";
 import UploadQueue from "./components/UploadQueue";
 import IngestionResult from "./components/IngestionResult";
 import HeaderMappingWorkspace from "./components/HeaderMappingWorkspace";
+import ValidationWorkspace from "./components/ValidationWorkspace";
 import AdminPanel from "./components/AdminPanel";
 import { getCurrentAccount } from "./services/authApi";
 import { uploadDatasetBatch } from "./services/uploadApi";
@@ -25,6 +26,7 @@ export default function App() {
   const [batch, setBatch] = useState(null);
   const [activeResultId, setActiveResultId] = useState(null);
   const [mappingTargetId, setMappingTargetId] = useState(null);
+  const [validationTargetId, setValidationTargetId] = useState(null);
 
   useEffect(() => {
     if (!token) return;
@@ -61,6 +63,7 @@ export default function App() {
     setBatch(null);
     setActiveResultId(null);
     setMappingTargetId(null);
+    setValidationTargetId(null);
     setIsBusy(false);
     setIsDragging(false);
   }
@@ -79,6 +82,7 @@ export default function App() {
     setBatch(null);
     setActiveResultId(null);
     setMappingTargetId(null);
+    setValidationTargetId(null);
     setError(files.length > MAX_BATCH_FILES
       ? `Only the first ${MAX_BATCH_FILES} files were added to this batch.`
       : "");
@@ -88,11 +92,13 @@ export default function App() {
     setQueue((items) => items.filter((item) => item.id !== itemId));
     if (activeResultId === itemId) setActiveResultId(null);
     if (mappingTargetId === itemId) setMappingTargetId(null);
+    if (validationTargetId === itemId) setValidationTargetId(null);
   }
 
   function viewQueueResult(itemId) {
     setActiveResultId(itemId);
     setMappingTargetId(null);
+    setValidationTargetId(null);
   }
 
   async function handleBatchUpload() {
@@ -104,6 +110,7 @@ export default function App() {
     setError("");
     setActiveResultId(null);
     setMappingTargetId(null);
+    setValidationTargetId(null);
     setQueue((items) => items.map((item) => uploadIds.has(item.id)
       ? { ...item, status: "uploading", progress: 0, error: "" }
       : item));
@@ -222,15 +229,24 @@ export default function App() {
           response={activeResult.response}
           selectedFile={activeResult.file}
           onReset={resetUpload}
-          onContinueToMapping={() => setMappingTargetId(activeResult.id)}
+          onContinueToMapping={() => {
+            setMappingTargetId(activeResult.id);
+            setValidationTargetId(null);
+          }}
         />}
 
         {activeResult && mappingTargetId === activeResult.id && <HeaderMappingWorkspace
           ingestionId={activeResult.response.data.handoff.ingestionId}
           token={token}
+          onConfirmed={() => setValidationTargetId(activeResult.id)}
         />}
 
-        <footer className="page-footer"><span>ALPHA / MODULES 01 + 02 + 03</span><span>Authentication + Ingestion + Header Mapping</span></footer>
+        {activeResult && validationTargetId === activeResult.id && <ValidationWorkspace
+          ingestionId={activeResult.response.data.handoff.ingestionId}
+          token={token}
+        />}
+
+        <footer className="page-footer"><span>ALPHA / MODULES 01–04</span><span>Authentication + Ingestion + Mapping + Validation</span></footer>
       </div>
     </main>
   </div>;

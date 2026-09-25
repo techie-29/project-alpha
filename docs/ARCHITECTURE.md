@@ -63,3 +63,12 @@ The current Modules 1-3 remain the working baseline. New engine modules are intr
 - Two uploaded headers cannot silently target the same canonical field.
 - `dataset_mappings` stores the confirmed mapping and its evidence. `saved_mappings` stores reusable templates keyed by a SHA-256 signature of the normalized header set.
 - Coverage uses dataset-type-specific required field groups and supports valid alternatives such as `product_name|sku` and `revenue|unit_price`.
+
+## Module 4 validation contract
+
+- `POST /api/validation/:ingestionId/run` validates every mapped raw row; `GET /api/validation/:ingestionId` restores the persisted result.
+- Number and date parsers are pure functions. Numeric date order is inferred once per column; unresolved or conflicting day/month order is flagged and never guessed.
+- Rules cover required groups, invalid numbers/dates/emails, negative quantity/stock, duplicates, empty mapped rows, and values above 100 times the column median.
+- Every row ends as `valid`, `repaired`, or `skipped`. One bad row never rejects the dataset.
+- Every repair and rejection produces a structured issue. Raw values, normalized candidates, repaired fields, and source row numbers remain linked.
+- `validation_issues` stores issue records while `ingestion_rows` stores row status, issue JSON, and the validated canonical candidate.

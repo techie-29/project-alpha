@@ -17,6 +17,13 @@
 - Stable header signatures, saved-template reuse, manual confirmation, and mapping validation.
 - Account-scoped mapping API load and confirmation contracts.
 
+## Module 4 automated coverage
+
+- Localized currency and numeric parsing, text/status normalization, and product keys.
+- Column-level DMY/MDY detection, named dates, impossible dates, and ambiguous-date refusal.
+- Required values, invalid email, impossible quantities/stock, duplicates, suspicious values, and partial-row continuation.
+- Validation service mapping guard, persistence handoff, and account-scoped API contracts.
+
 ## Manual MySQL/API verification
 
 1. Apply schema or migrations 001 and 002.

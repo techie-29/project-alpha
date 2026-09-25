@@ -15,6 +15,7 @@ For an existing Project Alpha database, run these migrations in order:
 1. `backend/database/001_v3_ingestion_foundation.sql`
 2. `backend/database/002_v3_ingestion_batches.sql`
 3. `backend/database/003_v3_header_mapping.sql`
+4. `backend/database/004_v3_validation.sql`
 
 ## 2. Configure the backend
 
@@ -47,8 +48,9 @@ Open the Vite URL, normally `http://localhost:5173`.
 5. Check file metadata, detected dataset type, skipped-row count, structure, and paginated preview.
 6. Continue to mapping, review confidence/reasons, correct a mapping, and confirm it.
 7. Upload the same header structure later and confirm the saved template is reused.
-8. Upload the same file again and confirm duplicate content is rejected without affecting other files in the batch.
-9. Sign out and confirm the upload workspace is no longer accessible.
+8. Run validation and inspect valid, repaired, and skipped rows plus their reasons.
+9. Upload the same file again and confirm duplicate content is rejected without affecting other files in the batch.
+10. Sign out and confirm the upload workspace is no longer accessible.
 
 ## 5. Run verification
 

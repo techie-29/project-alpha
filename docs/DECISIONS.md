@@ -14,3 +14,5 @@
 - 2026-09-25: Module 2 ends at `ready_for_mapping`; automatic Module 3 execution was removed from the upload button so each module can be tested and explained separately.
 - 2026-09-25: Confirmed mappings are stored once per ingestion as JSON; reusable templates are business-scoped and keyed by a normalized header-set hash.
 - 2026-09-25: Mapping coverage measures dataset-type critical field groups, with explicit alternatives, while header coverage is reported separately.
+- 2026-09-25: Ambiguous numeric dates are decided from column-wide evidence; when order remains unresolved, affected rows are skipped with `AMBIGUOUS_DATE_FORMAT` instead of being guessed.
+- 2026-09-25: Validation persists all row outcomes and issues, but API/UI previews are capped (50 rows and 200 issues) so large files do not freeze the browser.

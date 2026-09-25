@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS ingestions (
     column_count INT UNSIGNED NOT NULL,
     headers_json JSON NOT NULL,
     profile_json JSON NOT NULL,
+    validation_summary_json JSON NULL,
     status VARCHAR(40) NOT NULL DEFAULT 'ready_for_validation',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -104,6 +105,24 @@ CREATE TABLE IF NOT EXISTS saved_mappings (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_saved_mappings_business FOREIGN KEY (business_account_id) REFERENCES business_accounts(id) ON DELETE CASCADE,
     CONSTRAINT uq_saved_mappings_signature UNIQUE (business_account_id, header_signature)
+);
+
+CREATE TABLE IF NOT EXISTS validation_issues (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    ingestion_id INT UNSIGNED NOT NULL,
+    business_account_id INT UNSIGNED NOT NULL,
+    row_index INT UNSIGNED NOT NULL,
+    field_name VARCHAR(100) NULL,
+    issue_code VARCHAR(80) NOT NULL,
+    severity ENUM('error', 'warning', 'repaired') NOT NULL,
+    original_value JSON NULL,
+    message VARCHAR(500) NOT NULL,
+    action ENUM('skipped', 'repaired', 'kept') NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_validation_issues_ingestion FOREIGN KEY (ingestion_id) REFERENCES ingestions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_validation_issues_business FOREIGN KEY (business_account_id) REFERENCES business_accounts(id) ON DELETE CASCADE,
+    INDEX idx_validation_issues_dataset (business_account_id, ingestion_id),
+    INDEX idx_validation_issues_code (ingestion_id, issue_code)
 );
 
 CREATE TABLE IF NOT EXISTS admin_activity_logs (
