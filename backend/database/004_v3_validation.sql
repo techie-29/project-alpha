@@ -1,5 +1,69 @@
 USE project_alpha;
 
+-- Upgrade legacy ingestion_rows without deleting raw rows. Older Alpha
+-- databases used row_number; V3 consistently uses source_row_number.
+SET @has_source_row_number = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ingestion_rows' AND COLUMN_NAME = 'source_row_number'
+);
+SET @has_legacy_row_number = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ingestion_rows' AND COLUMN_NAME = 'row_number'
+);
+SET @sql = IF(
+  @has_source_row_number = 0 AND @has_legacy_row_number = 1,
+  'ALTER TABLE ingestion_rows CHANGE COLUMN row_number source_row_number INT UNSIGNED NOT NULL',
+  IF(@has_source_row_number = 0,
+    'ALTER TABLE ingestion_rows ADD COLUMN source_row_number INT UNSIGNED NOT NULL AFTER ingestion_id',
+    'SELECT "source_row_number already exists"')
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_validation_status = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ingestion_rows' AND COLUMN_NAME = 'validation_status'
+);
+SET @sql = IF(@has_validation_status = 0,
+  'ALTER TABLE ingestion_rows ADD COLUMN validation_status VARCHAR(20) NOT NULL DEFAULT "pending" AFTER raw_data',
+  'SELECT "validation_status already exists"');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_validation_issues = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ingestion_rows' AND COLUMN_NAME = 'validation_issues'
+);
+SET @sql = IF(@has_validation_issues = 0,
+  'ALTER TABLE ingestion_rows ADD COLUMN validation_issues JSON NULL AFTER validation_status',
+  'SELECT "validation_issues already exists"');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_transformed_data = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ingestion_rows' AND COLUMN_NAME = 'transformed_data'
+);
+SET @sql = IF(@has_transformed_data = 0,
+  'ALTER TABLE ingestion_rows ADD COLUMN transformed_data JSON NULL AFTER validation_issues',
+  'SELECT "transformed_data already exists"');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_ingestion_rows_created_at = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ingestion_rows' AND COLUMN_NAME = 'created_at'
+);
+SET @sql = IF(@has_ingestion_rows_created_at = 0,
+  'ALTER TABLE ingestion_rows ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER transformed_data',
+  'SELECT "ingestion_rows.created_at already exists"');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @has_ingestion_rows_updated_at = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ingestion_rows' AND COLUMN_NAME = 'updated_at'
+);
+SET @sql = IF(@has_ingestion_rows_updated_at = 0,
+  'ALTER TABLE ingestion_rows ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at',
+  'SELECT "ingestion_rows.updated_at already exists"');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
 SET @has_validation_summary = (
   SELECT COUNT(*) FROM information_schema.COLUMNS
   WHERE TABLE_SCHEMA = DATABASE()
