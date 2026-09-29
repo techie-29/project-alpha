@@ -35,9 +35,13 @@ export function normalizeIngestionResult(response, selectedFile) {
     rowCount: profile.rowCount ?? rows.length,
     columnCount: profile.columnCount ?? headers.length,
     sheetName: sourceFile.sheetName || null,
+    datasetType: dataset.type?.type || "unknown",
+    datasetTypeConfidence: dataset.type?.confidence ?? 0,
+    skippedRowCount: data.processing?.skippedRowCount ?? 0,
+    warnings: Array.isArray(data.processing?.warnings) ? data.processing.warnings : [],
     status:
-      data.handoff?.status === "ready_for_validation"
-        ? "Ready for validation"
+      data.handoff?.status === "ready_for_mapping"
+        ? "Ready for mapping"
         : "Ingested",
     rows,
     columns,

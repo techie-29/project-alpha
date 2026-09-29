@@ -1,11 +1,28 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { z } = require("zod");
 
 const db = require("../config/db");
 const authMiddleware = require("../middleware/authMiddleware");
 
 const router = express.Router();
+
+const registerSchema = z.object({
+    businessName: z.string().trim().min(2).max(120),
+    email: z.string().trim().toLowerCase().email().max(255),
+    password: z.string().min(8).max(128)
+});
+const loginSchema = z.object({
+    email: z.string().trim().toLowerCase().email().max(255),
+    password: z.string().min(1).max(128)
+});
+
+function validated(schema, body) {
+    const result = schema.safeParse(body);
+    if (result.success) return { data: result.data };
+    return { error: result.error.issues.map((issue) => issue.message).join("; ") };
+}
 
 function createToken(account) {
     return jwt.sign(
@@ -27,12 +44,9 @@ function publicAccount(account) {
 
 router.post("/register", async (req, res, next) => {
     try {
-        const businessName = req.body.businessName?.trim();
-        const email = req.body.email?.trim().toLowerCase();
-        const password = req.body.password;
-
-        if (!businessName || !email || !password) return res.status(400).json({ success: false, message: "Business name, email, and password are required" });
-        if (password.length < 6) return res.status(400).json({ success: false, message: "Password must contain at least 6 characters" });
+        const input = validated(registerSchema, req.body);
+        if (input.error) return res.status(400).json({ success: false, message: input.error });
+        const { businessName, email, password } = input.data;
 
         const [existingAccounts] = await db.execute("SELECT id FROM business_accounts WHERE email = ?", [email]);
         if (existingAccounts.length > 0) return res.status(409).json({ success: false, message: "An account with this email already exists" });
@@ -53,9 +67,9 @@ router.post("/register", async (req, res, next) => {
 
 router.post("/login", async (req, res, next) => {
     try {
-        const email = req.body.email?.trim().toLowerCase();
-        const password = req.body.password;
-        if (!email || !password) return res.status(400).json({ success: false, message: "Email and password are required" });
+        const input = validated(loginSchema, req.body);
+        if (input.error) return res.status(400).json({ success: false, message: "A valid email and password are required" });
+        const { email, password } = input.data;
 
         const [accounts] = await db.execute(
             `SELECT id, business_name, email, password_hash, role, account_status
@@ -87,3 +101,6 @@ router.get("/me", authMiddleware, async (req, res, next) => {
 });
 
 module.exports = router;
+module.exports.registerSchema = registerSchema;
+module.exports.loginSchema = loginSchema;
+module.exports.validated = validated;

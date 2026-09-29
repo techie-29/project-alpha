@@ -1,6 +1,6 @@
 # Project Alpha — Module 2 Frontend
 
-Canonical React + Vite frontend for the Data Ingestion module. It contains no backend and no fake API response.
+Canonical React + Vite frontend for the complete Project Alpha workflow. It contains no backend and no fake analytics data.
 
 ## Run locally
 
@@ -9,7 +9,9 @@ npm install
 npm run dev
 ```
 
-The app uses `http://localhost:5000/api/upload` by default. To change it, copy `.env.example` to `.env` and update `VITE_UPLOAD_API_URL`.
+The app uses `http://localhost:5000` by default. To change it, copy `.env.example` to `.env` and update `VITE_API_BASE_URL` and `VITE_UPLOAD_API_URL`.
+
+Authenticated routes include the executive dashboard, upload pipeline, sales/product/inventory/customer analytics, deterministic insights, dataset library, traceability drawers, and reports. React Router handles navigation and Recharts renders live API results; unsupported metrics show an explicit unavailable state instead of sample values.
 
 ## Upload contract
 
