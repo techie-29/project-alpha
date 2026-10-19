@@ -24,7 +24,19 @@ function createEngineClient({ baseUrl = process.env.ENGINE_URL || "http://127.0.
     }
     return response.json();
   }
+  async function exportFile(format, report, owner) {
+    let response;
+    try {
+      response = await fetchImpl(`${baseUrl}/v1/export`, { method: "POST", headers: { "content-type": "application/json", "x-engine-key": apiKey }, body: JSON.stringify({ format, report, owner }) });
+    } catch {
+      const error = new Error("The analysis engine is not reachable. Make sure it is running.");
+      error.status = 503; error.expose = true; throw error;
+    }
+    if (!response.ok) { const error = new Error("The export could not be created."); error.status = 502; error.expose = true; throw error; }
+    return Buffer.from(await response.arrayBuffer());
+  }
   return {
+    exportFile,
     read: (body) => call("POST", "/v1/read", body),
     analyze: (body) => call("POST", "/v1/analyze", body),
     job: (id) => call("GET", `/v1/jobs/${encodeURIComponent(id)}`),

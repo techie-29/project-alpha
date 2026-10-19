@@ -9,6 +9,18 @@ from pydantic import BaseModel
 from .llm import default_provider
 from . import pipeline
 
+def _load_env():
+    """Read engine/.env (KEY=VALUE lines) without overriding variables that are already set."""
+    f = Path(__file__).resolve().parents[1] / ".env"
+    if f.exists():
+        for line in f.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+_load_env()
 DATA_DIR = os.environ.get("ENGINE_DATA_DIR", str(Path.cwd() / "engine_data"))
 UPLOAD_DIR = os.environ.get("ENGINE_UPLOAD_DIR", str(Path.cwd().parent / "backend" / "uploads"))
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
@@ -46,6 +58,7 @@ class ReadRequest(BaseModel):
 
 class AnalyzeRequest(ReadRequest):
     analysis_id: str
+    preferences: dict = {}
 
 
 @app.get("/v1/health")
@@ -74,7 +87,7 @@ def analyze(req: AnalyzeRequest, x_engine_key: str | None = Header(default=None)
             provider = default_provider() if req.use_ai else None
             pipeline.analyze(req.analysis_id, files, req.confirmations, DATA_DIR, provider,
                              lambda s, p: JOBS[req.analysis_id].update(stage=s, progress=p),
-                             make_investigator(provider, DATA_DIR) if provider is not None and provider.name != "none" else None)
+                             make_investigator(provider, DATA_DIR) if provider is not None and provider.name != "none" else None, req.preferences)
             JOBS[req.analysis_id].update(status="done", progress=100, stage="Done")
         except Exception as e:                      # report a plain-language failure, never a stack trace
             traceback.print_exc()
@@ -82,6 +95,24 @@ def analyze(req: AnalyzeRequest, x_engine_key: str | None = Header(default=None)
 
     threading.Thread(target=run, daemon=True).start()
     return {"accepted": True}
+
+
+class ExportRequest(BaseModel):
+    format: str
+    report: dict
+    owner: dict = {}
+
+
+@app.post("/v1/export")
+def export(req: ExportRequest, x_engine_key: str | None = Header(default=None)):
+    _auth(x_engine_key)
+    from fastapi.responses import Response
+    from .report.export import to_pdf, to_xlsx
+    if req.format == "pdf":
+        return Response(to_pdf(req.report, req.owner), media_type="application/pdf")
+    if req.format == "xlsx":
+        return Response(to_xlsx(req.report, req.owner), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    raise HTTPException(400, "format must be pdf or xlsx")
 
 
 class AskRequest(BaseModel):

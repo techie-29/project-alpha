@@ -23,7 +23,7 @@ function fakeRepo() {
     listAnalyses: vi.fn(async () => []),
     updateAnalysis: vi.fn(async (o, id, patch) => { Object.assign(analyses[id], patch); }),
     getReport: vi.fn(async (o, id) => (analyses[id]?.owner === o && analyses[id].report) || null),
-    saveFeedback: vi.fn(async () => {}), listFeedback: vi.fn(async () => []),
+    saveFeedback: vi.fn(async () => {}), listPatternPreferences: vi.fn(async () => [{ patternKey: "net_sales|region", verdict: "not_useful" }]), listFeedback: vi.fn(async () => []),
     saveAnswer: vi.fn(async () => {}), listAnswers: vi.fn(async () => [])
   };
 }
@@ -124,6 +124,28 @@ describe("alpha API", () => {
     expect(r.body.result.answer).toBe("There are 5 rows.");
     expect(engine.ask).toHaveBeenCalledWith({ analysis_id: body.id, question: "How many rows?" });
     expect((await request(app).post("/api/alpha/analyses/nope/ask").send({ question: "How many rows?" })).status).toBe(404);
+  });
+
+  it("passes remembered preferences to the engine and stores the kind of finding when feedback is given", async () => {
+    const { app, repo, engine } = build();
+    const { body } = await request(app).post("/api/alpha/analyses").send({ fileIds: [1] });
+    expect(engine.analyze).toHaveBeenCalledWith(expect.objectContaining({ preferences: { "net_sales|region": "not_useful" } }));
+    repo.analyses[body.id].report = { insights: { findings: [{ id: "f1", pattern: "net_sales|region" }] } };
+    repo.analyses[body.id].status = "done";
+    await request(app).post(`/api/alpha/analyses/${body.id}/feedback`).send({ findingId: "f1", verdict: "useful" });
+    expect(repo.saveFeedback).toHaveBeenCalledWith(expect.objectContaining({ patternKey: "net_sales|region", verdict: "useful" }));
+  });
+
+  it("exports a finished report as pdf or xlsx and refuses other formats", async () => {
+    const { app, repo, engine } = build();
+    engine.exportFile = vi.fn(async () => Buffer.from("%PDF-fake"));
+    const { body } = await request(app).post("/api/alpha/analyses").send({ fileIds: [1] });
+    repo.analyses[body.id].report = { briefing: {} }; repo.analyses[body.id].status = "done";
+    const r = await request(app).get(`/api/alpha/analyses/${body.id}/export?format=pdf`);
+    expect(r.status).toBe(200);
+    expect(r.headers["content-type"]).toMatch(/pdf/);
+    expect(r.headers["content-disposition"]).toMatch(/alpha-report\.pdf/);
+    expect((await request(app).get(`/api/alpha/analyses/${body.id}/export?format=doc`)).status).toBe(400);
   });
 
   it("sends the engine key and maps engine errors", async () => {

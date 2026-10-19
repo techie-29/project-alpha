@@ -96,3 +96,37 @@ def test_pipeline_with_investigation_and_ask(env):
             return {"action": "finish", "answer": f"There are {n} counted rows."}
     r = ask(A([]), str(tmp / "data"), "a3", "How many rows count?", rep)
     assert r["verified"] and "counted rows" in r["answer"]
+
+
+def test_exports_open_and_match_the_report(env):
+    api, up, tmp = env
+    make_files(up)
+    from alpha_engine import pipeline
+    from alpha_engine.report.export import to_pdf, to_xlsx
+    import io, openpyxl
+    rep = pipeline.analyze("a4", [{"name": "shop.csv", "path": str(up / "shop.csv")}], {}, str(tmp / "data"))
+    pdf = to_pdf(rep, {"answers": [{"questionId": rep["questions"][0]["id"], "answer": "We ran a promotion"}] if rep["questions"] else []})
+    assert pdf[:4] == b"%PDF" and len(pdf) > 3000
+    wb = openpyxl.load_workbook(io.BytesIO(to_xlsx(rep)))
+    assert {"Briefing", "Findings", "Fix-Keep-Watch", "Key numbers", "Rows behind findings"} <= set(wb.sheetnames)
+    assert wb["Findings"].max_row == 1 + len(rep["insights"]["findings"])
+    c = TestClient(api.app)
+    r = c.post("/v1/export", headers={"x-engine-key": "k"}, json={"format": "pdf", "report": rep})
+    assert r.status_code == 200 and r.content[:4] == b"%PDF"
+    assert c.post("/v1/export", headers={"x-engine-key": "k"}, json={"format": "doc", "report": rep}).status_code == 400
+
+
+def test_owner_preferences_mute_and_boost(env):
+    api, up, tmp = env
+    make_files(up)
+    from alpha_engine import pipeline
+    spec = [{"name": "shop.csv", "path": str(up / "shop.csv")}]
+    base = pipeline.analyze("p1", spec, {}, str(tmp / "data"))
+    fs = base["insights"]["findings"]
+    assert fs and all("pattern" in f for f in fs)
+    target = fs[0]["pattern"]
+    rep = pipeline.analyze("p2", spec, {}, str(tmp / "data"), preferences={target: "not_useful"})
+    muted = [f for f in rep["insights"]["findings"] if f["muted"]]
+    assert muted and all(f["pattern"] == target for f in muted) and rep["muted_count"] == len(muted)
+    assert not any(i["finding_id"] in {m["id"] for m in muted} for k in ("fix", "keep", "watch") for i in rep["intelligence"][k])
+    assert rep["insights"]["findings"][-1]["muted"]          # muted ones sink to the bottom

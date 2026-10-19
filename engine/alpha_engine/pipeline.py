@@ -80,7 +80,7 @@ def read(files: list[dict], confirmations: dict | None = None, provider: Provide
 
 
 def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, data_dir: str, provider: Provider | None = None,
-            progress=lambda stage, pct: None, investigate=None) -> dict:
+            progress=lambda stage, pct: None, investigate=None, preferences: dict | None = None) -> dict:
     t0 = time.time()
     confirmations, provider = confirmations or {}, provider or NullProvider()
     progress("Reading your files", 5)
@@ -113,19 +113,28 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
         progress(f"Checked {v.name}", 30 + int(55 * (n + 1) / len(views)))
     progress("Writing the report", 90)
     findings = [f for d in disc for f in d["findings"]]
-    findings.sort(key=lambda f: (0 if f["level"] == "confirmed" else 1, -(f["numbers"]["impact_share"] or 0), f["q"]))
+    prefs = preferences or {}
+    for f in findings:
+        f["pattern"] = f"{f['family']}|{f['slice_col'] or ''}"
+        f["owner_pref"] = prefs.get(f["pattern"])
+        f["muted"] = f["owner_pref"] == "not_useful"
+    findings.sort(key=lambda f: (1 if f["muted"] else 0, 0 if f["owner_pref"] == "useful" else 1, 0 if f["level"] == "confirmed" else 1, -(f["numbers"]["impact_share"] or 0), f["q"]))
+    muted_ids = {f["id"] for f in findings if f["muted"]}
+    for d in disc:
+        d["stories"] = d["stories"]
     report = {
         "version": 1, "analysis_id": analysis_id, "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "files": [{"name": s["name"], "rows": int(len(tables[s["name"]].df)), "kind": tables[s["name"]].kind} for s in files],
         "reading": reading, "link_notes": lnotes, "link_warnings": lwarns,
-        "briefing": briefing(files, views_out, disc, reading),
+        "briefing": briefing(files, views_out, [{**d, "findings": [f for f in d["findings"] if f["id"] not in muted_ids]} for d in disc], reading),
         "your_data": views_out,
         "insights": {"findings": findings, "stories": [s for d in disc for s in d["stories"]], "seasonal": [s for d in disc for s in d["seasonal"]],
                      "snapshots": snaps, "quiet": not findings,
                      "checked": {"series": sum(d["checked"]["series"] for d in disc), "tests": sum(d["checked"]["tests"] for d in disc),
                                  "dropped_duplicate_measures": [x for d in disc for x in d["dropped_duplicates"]][:30]}},
-        "intelligence": intelligence(findings),
-        "questions": questions(findings),
+        "intelligence": intelligence([f for f in findings if not f["muted"]]),
+        "questions": questions([f for f in findings if not f["muted"]]),
+        "muted_count": len(muted_ids),
         "not_explained": [{"finding_id": f["id"], "title": f["title"], "share": f["drivers"]["not_explained"]} for f in findings if f.get("drivers") and f["drivers"]["not_explained"] > 0.3][:10],
         "limits": ["Amounts in different currencies are never added together.", "Findings describe what changed and what it lines up with; they do not prove a cause.",
                    "Statistical minimums used: 30 rows per group, 3 rows per period, 4 periods per side, 5 rows per period to confirm."],

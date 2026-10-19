@@ -50,3 +50,14 @@ export function uploadFiles(files, token, onProgress = () => {}) {
   });
 }
 export const askAlpha = (id, question, token) => request(`/analyses/${id}/ask`, token, { method: "POST", body: { question } }).then((r) => r.result);
+
+export async function downloadExport(id, format, token) {
+  let response;
+  try { response = await fetch(`${API}/analyses/${id}/export?format=${format}`, { headers: { Authorization: `Bearer ${token}` } }); }
+  catch { throw new Error("Unable to reach the server."); }
+  if (!response.ok) { const p = await response.json().catch(() => null); throw new Error(p?.message || "The export could not be created."); }
+  const url = URL.createObjectURL(await response.blob());
+  const a = document.createElement("a");
+  a.href = url; a.download = `alpha-report.${format}`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}

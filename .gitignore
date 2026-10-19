@@ -10,3 +10,4 @@ __pycache__/
 .pytest_cache/
 engine/.venv/
 engine/.env
+engine/engine_data/

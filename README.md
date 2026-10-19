@@ -1,95 +1,70 @@
 # Project Alpha
 
-Project Alpha currently combines:
+A business-intelligence website for any business. Upload raw CSV or Excel files (one or many, linked or separate). Alpha works out what each column means, scans every measure by group by time window for what changed, shows the evidence, and tells you what to fix, keep and watch. It never claims a cause.
 
-- Module 1: validated MySQL business registration, login, JWT sessions, security headers, rate limits, and protected APIs.
-- Module 2: multi-file CSV/Excel batches, hashing and duplicate detection, extraction, profiling, dataset classification, persistent per-file progress, and paginated React previews.
-- Module 3: canonical header mapping with aliases, fuzzy/value matching, confidence reasons, collision prevention, manual confirmation, and reusable templates.
-- Module 4: deterministic validation, repairs, skipped-row evidence, issue persistence, and validation summaries.
-- Modules 5–6: normalized transformations, computed revenue/profit, typed structured storage, and explainable quality scores.
-- Module 7: adaptive KPIs, period comparisons, latest-stock logic, ABC, RFM, anomalies, statistical forecast/backtest, and a modular rule-based insight engine.
-- Module 8: executive and detailed dashboards, provenance, filters, source traceability, dataset inclusion controls, overlap/repeated-order warnings, CSV/Excel exports, and printable reports.
+## How it is built
+
+| Layer | Folder | What it does |
+|---|---|---|
+| Website | `frontend/` | React + Vite. Sign in, upload, "how I read your files" review, progress, Briefing / Your data / Insights / Intelligence, Ask Alpha, PDF and Excel export. |
+| API | `backend/` | Node + Express + MySQL. Accounts, JWT, file storage, analysis jobs, saved reports, owner feedback, export. Checks the account on every request. |
+| Engine | `engine/` | Python + FastAPI. Understands columns, links files, scans for changes with shuffle tests, finds drivers, builds the report, runs the AI investigation and Ask Alpha. Listens on 127.0.0.1 only. |
+
+Privacy: the AI helper (Gemini) is only sent findings, summaries, column names and statistics. Raw rows and personal columns are never sent. Code written by the AI runs in a restricted process and every number in its wording is checked against what the code produced.
 
 ## 1. Prepare MySQL
 
-For a fresh database, run `backend/database/schema.sql` in MySQL Workbench.
+Fresh database: run `backend/database/schema.sql` in MySQL Workbench.
 
-For an existing Project Alpha database, run these migrations in order:
+Existing database: run `backend/database/admin_control_migration.sql` (if not done), `006_v3_business_preferences.sql` (if not done) and `007_alpha_engine.sql`. The old retail tables are no longer used and can be dropped.
 
-1. `backend/database/001_v3_ingestion_foundation.sql`
-2. `backend/database/002_v3_ingestion_batches.sql`
-3. `backend/database/003_v3_header_mapping.sql`
-4. `backend/database/004_v3_validation.sql`
-5. `backend/database/005_v3_transformation_storage.sql`
-6. `backend/database/006_v3_business_preferences.sql`
-
-## 2. Configure the backend
-
-Copy `backend/.env.example` to `backend/.env` and replace the example values with your local MySQL credentials and a long JWT secret.
+## 2. Backend
 
 ```bash
 cd backend
+cp .env.example .env      # then fill in your MySQL details, JWT_SECRET and ENGINE_API_KEY
 npm install
-npm start
+npm start                 # http://localhost:5000
 ```
 
-The backend runs at `http://localhost:5000`.
+## 3. Engine
 
-## 3. Run the React frontend
+```bash
+cd engine
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+cp .env.example .env      # then set ENGINE_API_KEY (same as backend), the two folders, and GEMINI_API_KEY
+uvicorn alpha_engine.api:app --host 127.0.0.1 --port 8001
+```
+
+Without a Gemini key everything still works; only the AI column review, AI investigation notes and Ask Alpha are off.
+
+## 4. Website
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev               # http://localhost:5173
 ```
 
-Open the Vite URL, normally `http://localhost:5173`.
+Set `VITE_API_BASE_URL` if the backend is not on `http://localhost:5000`.
 
-## 4. Test the integrated flow
+## 5. Try it
 
-1. Create a business account.
-2. Sign in (registration also starts a signed-in session).
-3. Select up to 10 `.csv`, `.xlsx`, or `.xls` datasets, each smaller than 10 MB and 50,000 rows.
-4. Start the batch and confirm each file reaches its own completed or failed state.
-5. Check file metadata, detected dataset type, skipped-row count, structure, and paginated preview.
-6. Continue to mapping, review confidence/reasons, correct a mapping, and confirm it.
-7. Upload the same header structure later and confirm the saved template is reused.
-8. Run validation and inspect valid, repaired, and skipped rows plus their reasons.
-9. Run transformation and inspect structured record counts, examples, and the quality-score breakdown.
-10. Open the dashboard and verify the provenance panel appears before KPIs and charts.
-11. Select Revenue, Units, or Inventory to trace the metric to normalized records and original source rows.
-12. Review sales, product ABC, inventory days-of-cover, customer RFM, insights, anomalies, and forecast backtest evidence.
-13. Exclude a dataset in the Dataset Library and confirm the next analytics request recalculates without it.
-14. Export normalized CSV/Excel data or an issue report and print the executive summary.
-15. Upload the same file again and confirm duplicate content is rejected without affecting other files in the batch.
-16. Sign out and confirm the protected workspace is no longer accessible.
+Register a business account, choose **New analysis**, upload your files, check the "how I read your files" table (change anything that is wrong), and run. Large files (about 150,000 rows) take a few minutes; you can leave the page.
 
-## 5. Analytics APIs
-
-All routes below require `Authorization: Bearer <token>` and are scoped from the verified account, never from a client-provided business ID.
-
-- `GET /api/analytics/overview` — provenance, KPIs, charts, detailed analytics, and intelligence.
-- `GET /api/analytics/{sales|products|inventory|customers|insights}` — purpose-specific responses.
-- `GET /api/analytics/trace/{revenue|units|stock}` — metric-to-source evidence.
-- `GET /api/datasets` and `GET /api/datasets/:id` — dataset library and detail.
-- `PATCH /api/datasets/:id/inclusion` — include or exclude a dataset from subsequent analytics.
-- `GET /api/datasets/:id/export?type=sales|stock|issues&format=csv|xlsx` — normalized and issue exports.
-- `GET/PATCH /api/settings` and `PATCH /api/settings/password` — tenant profile, regional preferences, and password management.
-
-Analytics routes accept `preset=daily|weekly|monthly|quarterly|custom`, custom `from`/`to` dates, and applicable `datasetId`, `product`, `category`, `customer`, and `status` filters.
-
-## 6. Run verification
+## Tests
 
 ```bash
-cd backend
-npm test
-
-cd ../frontend
-npm run build
+cd engine/tests && PYTHONPATH=.. python3 -m pytest -q .     # engine, about a minute
+cd backend && npx vitest run
+cd frontend && npx vitest run
 ```
 
-The deterministic fixtures live in `backend/src/tests/fixtures`. Rebuild them with `node src/tests/fixtures/generateFixtures.cjs` from the backend folder.
+## Honest limits
 
-The automated suite covers ingestion fixtures, mapping, validation, transformation, quality scoring, KPI calculations, tenant scoping, latest inventory snapshots, every insight rule, forecast guards/backtest, RFM/ABC boundaries, dataset controls, traceability, and exports. A live MySQL end-to-end run still requires the local `backend/.env` described above.
-
-Never commit `backend/.env`, `node_modules`, uploaded files, or database passwords.
+- Statistical minimums are hand-set: 30 rows per group, 3 rows per period, 4 periods per side, at least 12 periods, 5 rows per period to confirm a change.
+- Amounts in different currencies are analysed separately, never added.
+- Findings show what changed and what it lines up with. They do not prove a cause. Labels: Calculated, Supported by evidence, Possible (early sign).
+- Tested on synthetic data and the practice files; calibration on real owners' files is still to come.
+- The code sandbox is a restricted process (allow-listed code, resource limits), not a hardened container. Run the engine on a machine you control.

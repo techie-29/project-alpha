@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS alpha_feedback (
   business_account_id INT NOT NULL,
   analysis_id CHAR(36) NOT NULL,
   finding_id VARCHAR(80) NOT NULL,
+  pattern_key VARCHAR(200) NULL,
   verdict ENUM('useful','not_useful') NOT NULL,
   note VARCHAR(500) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

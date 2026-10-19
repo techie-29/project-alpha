@@ -19,6 +19,13 @@ function createAlphaRouter({ service = createAlphaService(), upload = alphaUploa
   router.get("/analyses", wrap(async (req, res) => res.json({ success: true, analyses: await service.list(uid(req)) })));
   router.get("/analyses/:id", wrap(async (req, res) => res.json({ success: true, analysis: await service.status(uid(req), req.params.id) })));
   router.get("/analyses/:id/report", wrap(async (req, res) => res.json({ success: true, report: await service.report(uid(req), req.params.id) })));
+  router.get("/analyses/:id/export", wrap(async (req, res) => {
+    const format = String(req.query.format || "pdf");
+    const data = await service.export(uid(req), req.params.id, format);
+    res.setHeader("Content-Type", format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="alpha-report.${format}"`);
+    res.send(data);
+  }));
   router.post("/analyses/:id/feedback", wrap(async (req, res) => { await service.feedback(uid(req), req.params.id, req.body || {}); res.json({ success: true }); }));
   router.post("/analyses/:id/ask", wrap(async (req, res) => res.json({ success: true, result: await service.ask(uid(req), req.params.id, req.body || {}) })));
   router.post("/analyses/:id/answers", wrap(async (req, res) => { await service.answer(uid(req), req.params.id, req.body || {}); res.json({ success: true }); }));

@@ -4,7 +4,7 @@ import BriefingTab from "../components/alpha/BriefingTab";
 import YourDataTab from "../components/alpha/YourDataTab";
 import InsightsTab from "../components/alpha/InsightsTab";
 import IntelligenceTab from "../components/alpha/IntelligenceTab";
-import { getAnalysis, getReport, sendAnswer, sendFeedback } from "../services/alphaApi";
+import { downloadExport, getAnalysis, getReport, sendAnswer, sendFeedback } from "../services/alphaApi";
 
 const TABS = [["briefing", "Briefing"], ["data", "Your data"], ["insights", "Insights"], ["intelligence", "Intelligence"]];
 
@@ -15,6 +15,7 @@ export default function AnalysisPage({ token }) {
   const [error, setError] = useState("");
   const [tab, setTab] = useState("briefing");
   const [focusId, setFocusId] = useState(null);
+  const [exporting, setExporting] = useState("");
 
   useEffect(() => {
     let active = true, timer;
@@ -43,6 +44,11 @@ export default function AnalysisPage({ token }) {
     try { await sendAnswer(id, questionId, answer, token); } catch (e) { setError(e.message); }
   }
 
+  async function onExport(format) {
+    setExporting(format); setError("");
+    try { await downloadExport(id, format, token); } catch (e) { setError(e.message); } finally { setExporting(""); }
+  }
+
   if (error && !status) return <div className="page-content"><div className="error-banner" role="alert"><span>!</span><div><strong>Could not load this analysis</strong><p>{error}</p></div></div><Link to="/analyses">Back to analyses</Link></div>;
   if (!status) return <div className="page-content"><div className="analytics-loading"><span className="spinner"/>Loading…</div></div>;
   if (status.status === "failed") return <div className="page-content"><div className="error-banner" role="alert"><span>!</span><div><strong>The analysis stopped</strong><p>{status.error || "Something went wrong."}</p></div></div><Link className="secondary-button" to="/upload">Try again with your files</Link></div>;
@@ -56,6 +62,7 @@ export default function AnalysisPage({ token }) {
     <section className="page-header">
       <span className="eyebrow">Analysis · {new Date(report.generated_at).toLocaleString()}</span>
       <h1>{report.files.map((f) => f.name).join(", ")}</h1>
+      <div className="al-actions"><button type="button" className="secondary-button" disabled={!!exporting} onClick={() => onExport("pdf")}>{exporting === "pdf" ? "Preparing…" : "Download PDF"}</button><button type="button" className="secondary-button" disabled={!!exporting} onClick={() => onExport("xlsx")}>{exporting === "xlsx" ? "Preparing…" : "Download Excel"}</button></div>
       <p className="al-muted">Took {report.seconds}s. AI helper: {report.ai.provider === "none" ? "off (rule-based reading only)" : report.ai.provider}.</p>
     </section>
     {error && <div className="error-banner" role="alert"><span>!</span><div><p>{error}</p></div></div>}

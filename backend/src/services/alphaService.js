@@ -40,8 +40,10 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
       const files = await filesFor(businessAccountId, fileIds);
       const id = crypto.randomUUID();
       await repository.createAnalysis({ id, businessAccountId, fileIds: files.map((f) => f.id), confirmations });
+      const preferences = {};
+      for (const row of await repository.listPatternPreferences(businessAccountId)) preferences[row.patternKey] = row.verdict;
       try {
-        await engine.analyze({ analysis_id: id, files, confirmations: confirmations || {}, use_ai: true });
+        await engine.analyze({ analysis_id: id, files, confirmations: confirmations || {}, use_ai: true, preferences });
       } catch (error) {
         await repository.updateAnalysis(businessAccountId, id, { status: "failed", error: error.message.slice(0, 480) });
         throw error;
@@ -83,7 +85,15 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
       if (!["useful", "not_useful"].includes(verdict)) throw httpError(400, "verdict must be useful or not_useful");
       if (!findingId || typeof findingId !== "string") throw httpError(400, "findingId is required");
       if (!(await repository.getAnalysis(businessAccountId, id))) throw httpError(404, "Analysis not found");
-      await repository.saveFeedback({ businessAccountId, analysisId: id, findingId: findingId.slice(0, 80), verdict, note: note ? String(note).slice(0, 500) : null });
+      const report = await repository.getReport(businessAccountId, id);
+      const finding = report?.insights?.findings?.find((f) => f.id === findingId);
+      await repository.saveFeedback({ businessAccountId, analysisId: id, findingId: findingId.slice(0, 80), patternKey: finding?.pattern || null, verdict, note: note ? String(note).slice(0, 500) : null });
+    },
+    async export(businessAccountId, id, format) {
+      if (!["pdf", "xlsx"].includes(format)) throw httpError(400, "format must be pdf or xlsx");
+      const report = await this.report(businessAccountId, id);
+      const { owner, ...plain } = report;
+      return engine.exportFile(format, plain, owner);
     },
     async ask(businessAccountId, id, { question }) {
       if (typeof question !== "string" || question.trim().length < 3) throw httpError(400, "Type a question first");

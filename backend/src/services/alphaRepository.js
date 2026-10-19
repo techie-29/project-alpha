@@ -55,10 +55,16 @@ async function getReport(businessAccountId, id) {
   const [rows] = await db.execute("SELECT report FROM alpha_analyses WHERE id=? AND business_account_id=? AND status='done'", [id, businessAccountId]);
   return rows.length && rows[0].report ? parse(rows[0].report) : null;
 }
-async function saveFeedback({ businessAccountId, analysisId, findingId, verdict, note }) {
+async function saveFeedback({ businessAccountId, analysisId, findingId, patternKey, verdict, note }) {
   await db.execute(
-    `INSERT INTO alpha_feedback (business_account_id, analysis_id, finding_id, verdict, note) VALUES (?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE verdict=VALUES(verdict), note=VALUES(note)`, [businessAccountId, analysisId, findingId, verdict, note || null]);
+    `INSERT INTO alpha_feedback (business_account_id, analysis_id, finding_id, pattern_key, verdict, note) VALUES (?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE verdict=VALUES(verdict), note=VALUES(note), pattern_key=VALUES(pattern_key)`, [businessAccountId, analysisId, findingId, patternKey || null, verdict, note || null]);
+}
+/** Latest verdict per kind of finding, across all of this account's analyses. */
+async function listPatternPreferences(businessAccountId) {
+  const [rows] = await db.execute(
+    "SELECT pattern_key AS patternKey, verdict FROM alpha_feedback WHERE business_account_id=? AND pattern_key IS NOT NULL ORDER BY id ASC", [businessAccountId]);
+  return rows;
 }
 async function listFeedback(businessAccountId, analysisId) {
   const [rows] = await db.execute("SELECT finding_id AS findingId, verdict, note FROM alpha_feedback WHERE business_account_id=? AND analysis_id=?", [businessAccountId, analysisId]);
@@ -74,4 +80,4 @@ async function listAnswers(businessAccountId, analysisId) {
   return rows;
 }
 
-module.exports = { addFile, listFiles, getFiles, deleteFile, createAnalysis, getAnalysis, listAnalyses, updateAnalysis, getReport, saveFeedback, listFeedback, saveAnswer, listAnswers };
+module.exports = { addFile, listFiles, getFiles, deleteFile, createAnalysis, getAnalysis, listAnalyses, updateAnalysis, getReport, saveFeedback, listPatternPreferences, listFeedback, saveAnswer, listAnswers };
