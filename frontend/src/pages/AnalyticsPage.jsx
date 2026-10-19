@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getAnalytics } from "../services/analyticsApi";
 import AnalyticsFilters from "../components/analytics/AnalyticsFilters";
 import KpiCard from "../components/analytics/KpiCard";
@@ -16,12 +16,9 @@ function Table({ headers, rows, empty }) {
 function SalesView({ data, setTrace }) {
   const kpis = data.kpis || {};
   const actual = data.charts?.dailyRevenue || [];
-  const forecast = data.forecast;
-  const combinedForecast = [...actual.slice(-30).map((point) => ({ ...point, actual: point.value })), ...(forecast?.points || []).map((point) => ({ ...point, forecast: point.value }))];
   return <>
     <section className="kpi-grid compact-kpis"><KpiCard label="Revenue" metric={kpis.revenue} kind="money" onTrace={() => setTrace("revenue")}/><KpiCard label="Orders" metric={kpis.orders}/><KpiCard label="Units" metric={kpis.units} onTrace={() => setTrace("units")}/><KpiCard label="AOV" metric={kpis.averageOrderValue} kind="money"/><KpiCard label="Profit" metric={kpis.grossProfit} kind="money"/></section>
-    <section className="chart-grid"><article className="analytics-card chart-card wide"><div className="analytics-card-heading"><div><span className="eyebrow">Sales analytics</span><h2>Revenue trend and anomalies</h2></div><span>{data.anomalies?.anomalies?.length || 0} anomalies</span></div><div className="chart-space"><ResponsiveContainer><LineChart data={actual}><CartesianGrid stroke="#1c2730" vertical={false}/><XAxis dataKey="date" tick={{ fill: "#74818b", fontSize: 9 }} minTickGap={25}/><YAxis tick={{ fill: "#74818b", fontSize: 9 }}/><Tooltip contentStyle={tooltipStyle}/><Line dataKey="value" stroke="#57e7b0" dot={false} strokeWidth={2}/>{(data.anomalies?.anomalies || []).map((point) => <ReferenceDot key={point.date} x={point.date} y={point.value} r={5} fill="#ff8c8c" stroke="none"/>)}</LineChart></ResponsiveContainer></div></article>
-      <article className="analytics-card chart-card"><div className="analytics-card-heading"><div><span className="eyebrow">Statistical forecast</span><h2>Next 14 days</h2></div>{forecast?.backtest?.ok && <span>{forecast.backtest.confidence} confidence · sMAPE {formatPercent(forecast.backtest.smape)}</span>}</div>{forecast?.ok ? <div className="chart-space"><ResponsiveContainer><LineChart data={combinedForecast}><CartesianGrid stroke="#1c2730" vertical={false}/><XAxis dataKey="date" tick={{ fill: "#74818b", fontSize: 9 }} minTickGap={25}/><YAxis tick={{ fill: "#74818b", fontSize: 9 }}/><Tooltip contentStyle={tooltipStyle}/><Line dataKey="actual" stroke="#57e7b0" dot={false}/><Line dataKey="forecast" stroke="#7cbcff" strokeDasharray="5 4" dot={false}/></LineChart></ResponsiveContainer></div> : <div className="analytics-empty">{forecast?.reason || "Forecast unavailable."}</div>}</article></section>
+    <section className="chart-grid"><article className="analytics-card chart-card wide"><div className="analytics-card-heading"><div><span className="eyebrow">Sales analytics</span><h2>Revenue trend</h2></div></div><div className="chart-space"><ResponsiveContainer><LineChart data={actual}><CartesianGrid stroke="#1c2730" vertical={false}/><XAxis dataKey="date" tick={{ fill: "#74818b", fontSize: 9 }} minTickGap={25}/><YAxis tick={{ fill: "#74818b", fontSize: 9 }}/><Tooltip contentStyle={tooltipStyle}/><Line dataKey="value" stroke="#57e7b0" dot={false} strokeWidth={2}/></LineChart></ResponsiveContainer></div></article></section>
   </>;
 }
 

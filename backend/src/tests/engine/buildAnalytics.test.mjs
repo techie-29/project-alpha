@@ -34,10 +34,9 @@ describe("analytics response builder", () => {
     });
     expect(result.kpis.revenue.available).toBe(false);
     expect(result.kpis.inventory.available).toBe(false);
-    expect(result.intelligence.forecast.ok).toBe(false);
   });
 
-  it("fills missing calendar dates with zero for intelligence functions", () => {
+  it("fills missing calendar dates with zero for the daily chart", () => {
     expect(denseRevenueSeries([{ order_date: "2026-09-02", revenue: 5 }], "2026-09-01", "2026-09-03"))
       .toEqual([{ date: "2026-09-01", value: 0 }, { date: "2026-09-02", value: 5 }, { date: "2026-09-03", value: 0 }]);
     expect(customerConcentration([{ customer_key: "a", revenue: 90 }, { customer_key: "b", revenue: 10 }]).topTenPercentShare).toBe(0.9);

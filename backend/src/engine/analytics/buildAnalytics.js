@@ -2,10 +2,7 @@ const { computeKpis, dailyRevenue } = require("./kpis");
 const { latestStockSnapshots, daysOfCover } = require("./inventory");
 const { classifyProductsAbc } = require("./products");
 const { segmentCustomersRfm } = require("./customers");
-const { detectRevenueAnomalies } = require("./anomalies");
 const { addDays, daysBetween, filterByPeriod, isoDate } = require("./periods");
-const { forecastWithBacktest } = require("../forecast/forecastDaily");
-const { generateInsights } = require("../insights/generateInsights");
 
 function numeric(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -118,18 +115,7 @@ function buildAnalytics({ sales = [], stock = [], products: productRecords = [],
   const categories = categoryAnalytics(currentSales);
   const rfm = segmentCustomersRfm(filteredAllSales.filter((row) => isoDate(row.order_date) <= period.to), { asOf: period.to });
   const daily = denseRevenueSeries(currentSales, period.from, period.to);
-  const anomalies = detectRevenueAnomalies(daily);
-  const earliest = filteredAllSales.map((row) => isoDate(row.order_date)).filter(Boolean).sort()[0];
-  const forecastSeries = earliest ? denseRevenueSeries(filteredAllSales.filter((row) => isoDate(row.order_date) <= period.to), earliest, period.to) : [];
-  const forecast = forecastWithBacktest(forecastSeries);
   const concentration = customerConcentration(currentSales);
-  const marginComparison = kpis.grossProfit?.marginPreviousPeriod;
-  const context = {
-    period, kpis, products, categories, inventory, rfm, anomalies,
-    customerConcentration: concentration,
-    marginChangePoints: marginComparison?.available ? marginComparison.absolute * 100 : null,
-    datasets
-  };
   return {
     period,
     previousPeriod: previous,
@@ -140,7 +126,6 @@ function buildAnalytics({ sales = [], stock = [], products: productRecords = [],
     products,
     inventory,
     customers: { rfm, concentration },
-    intelligence: { anomalies, forecast, insights: generateInsights(context) },
     recordCounts: { currentSales: currentSales.length, previousSales: previousSales.length, stockSnapshots: relevantStock.length }
   };
 }

@@ -15,21 +15,10 @@ function appWith(getAnalytics, getTraceability = vi.fn()) {
 
 describe("analytics API", () => {
   it("scopes overview requests to the authenticated tenant and passes filters", async () => {
-    const getAnalytics = vi.fn(async () => ({ kpis: {}, intelligence: {} }));
+    const getAnalytics = vi.fn(async () => ({ kpis: {} }));
     const response = await request(appWith(getAnalytics)).get("/api/analytics/overview?product=helmet&preset=weekly");
     expect(response.status).toBe(200);
     expect(getAnalytics).toHaveBeenCalledWith({ businessAccountId: 7, query: expect.objectContaining({ product: "helmet", preset: "weekly" }) });
-  });
-
-  it("returns purpose-specific insight data without exposing unrelated records", async () => {
-    const getAnalytics = vi.fn(async () => ({
-      period: { from: "2026-09-01", to: "2026-09-30" },
-      intelligence: { insights: [{ id: "one" }], forecast: { ok: false }, anomalies: { available: false } }
-    }));
-    const response = await request(appWith(getAnalytics)).get("/api/analytics/insights");
-    expect(response.status).toBe(200);
-    expect(response.body.data.insights).toEqual([{ id: "one" }]);
-    expect(response.body.data.kpis).toBeUndefined();
   });
 
   it("scopes traceability requests to the authenticated tenant", async () => {

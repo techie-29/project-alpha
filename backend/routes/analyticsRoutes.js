@@ -20,7 +20,7 @@ function createAnalyticsRouter({ getAnalytics = defaultGetAnalytics, getTraceabi
   router.get("/sales", async (req, res, next) => {
     try {
       const data = await analytics(req);
-      return res.json({ success: true, data: { period: data.period, previousPeriod: data.previousPeriod, filters: data.filters, kpis: data.kpis, charts: data.charts, anomalies: data.intelligence.anomalies, forecast: data.intelligence.forecast } });
+      return res.json({ success: true, data: { period: data.period, previousPeriod: data.previousPeriod, filters: data.filters, kpis: data.kpis, charts: data.charts } });
     } catch (error) { next(error); }
   });
   router.get("/products", async (req, res, next) => {
@@ -39,12 +39,6 @@ function createAnalyticsRouter({ getAnalytics = defaultGetAnalytics, getTraceabi
     try {
       const data = await analytics(req);
       return res.json({ success: true, data: { period: data.period, kpi: data.kpis.customers, customers: data.customers } });
-    } catch (error) { next(error); }
-  });
-  router.get("/insights", async (req, res, next) => {
-    try {
-      const data = await analytics(req);
-      return res.json({ success: true, data: { period: data.period, ...data.intelligence } });
     } catch (error) { next(error); }
   });
   return router;
