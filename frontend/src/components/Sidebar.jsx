@@ -1,15 +1,8 @@
 import { NavLink } from "react-router-dom";
 
 const navItems = [
-  { label: "Dashboard", icon: "grid", to: "/dashboard" },
-  { label: "Upload", icon: "upload", to: "/upload" },
-  { label: "Sales", icon: "chart", to: "/analytics/sales" },
-  { label: "Products", icon: "chart", to: "/analytics/products" },
-  { label: "Inventory", icon: "chart", to: "/analytics/inventory" },
-  { label: "Customers", icon: "chart", to: "/analytics/customers" },
-  { label: "Insights", icon: "spark", to: "/insights" },
-  { label: "Datasets", icon: "grid", to: "/datasets" },
-  { label: "Reports", icon: "spark", to: "/reports" },
+  { label: "Analyses", icon: "grid", to: "/analyses" },
+  { label: "New analysis", icon: "upload", to: "/upload" },
   { label: "Settings", icon: "settings", to: "/settings" },
 ];
 
