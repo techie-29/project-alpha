@@ -261,3 +261,6 @@ CREATE TABLE IF NOT EXISTS admin_activity_logs (
 );
 
 -- For existing databases, use database/admin_control_migration.sql.
+
+-- Alpha engine tables (see 007_alpha_engine.sql)
+SOURCE 007_alpha_engine.sql;

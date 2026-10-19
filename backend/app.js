@@ -15,6 +15,7 @@ const transformationRoutes = require("./routes/transformationRoutes");
 const analyticsRoutes = require("./routes/analyticsRoutes");
 const datasetLibraryRoutes = require("./routes/datasetLibraryRoutes");
 const settingsRoutes = require("./routes/settingsRoutes");
+const { createAlphaRouter } = require("./routes/alphaRoutes");
 const authMiddleware = require("./middleware/authMiddleware");
 const adminMiddleware = require("./middleware/adminMiddleware");
 
@@ -42,6 +43,7 @@ app.use("/api/transformation", authMiddleware, transformationRoutes);
 app.use("/api/analytics", authMiddleware, analyticsRoutes);
 app.use("/api/datasets", authMiddleware, datasetLibraryRoutes);
 app.use("/api/settings", authMiddleware, settingsRoutes);
+app.use("/api/alpha", authMiddleware, createAlphaRouter());
 
 app.use((err, req, res, next) => {
     const isUploadRequest = req.originalUrl.startsWith("/api/upload");
@@ -50,7 +52,7 @@ app.use((err, req, res, next) => {
     return res.status(status).json({
         success: false,
         code: err.code || undefined,
-        message: status >= 500 ? "Internal server error" : err.message,
+        message: status >= 500 && !err.expose ? "Internal server error" : err.message,
         details: status < 500 ? err.details : undefined
     });
 });
