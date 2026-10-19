@@ -1,0 +1,9 @@
+[project]
+name = "alpha-engine"
+version = "0.4.0"
+description = "Project Alpha adaptive investigator engine (Stages 1-2 offline, Stage 3 with Gemini)"
+requires-python = ">=3.11"
+dependencies = ["pandas", "numpy", "scipy", "openpyxl", "fastapi", "uvicorn", "python-multipart"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

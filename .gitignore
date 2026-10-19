@@ -3,3 +3,9 @@ frontend/dist
 backend/node_modules
 backend/.env
 backend/uploads
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+engine/.venv/
