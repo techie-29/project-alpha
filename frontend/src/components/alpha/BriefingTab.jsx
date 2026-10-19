@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { LevelBadge } from "./FindingCard";
+import AskAlpha from "./AskAlpha";
 import { percent } from "../../utils/alphaFormat";
 
-export default function BriefingTab({ report, onOpenFinding, onAnswer, answers }) {
+export default function BriefingTab({ report, onOpenFinding, onAnswer, answers, analysisId, token }) {
   const b = report.briefing;
   const answered = new Map((answers || []).map((a) => [a.questionId, a.answer]));
   return <div className="al-stack">
@@ -24,6 +25,8 @@ export default function BriefingTab({ report, onOpenFinding, onAnswer, answers }
         {s.more > 0 && <small>+{s.more} related finding{s.more === 1 ? "" : "s"}</small>}
       </button>)}</div>
     </section>}
+
+    <AskAlpha analysisId={analysisId} token={token}/>
 
     {report.questions?.length > 0 && <section className="al-panel">
       <h3 className="al-h3">Questions only you can answer</h3>

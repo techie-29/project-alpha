@@ -49,3 +49,4 @@ export function uploadFiles(files, token, onProgress = () => {}) {
     xhr.send(form);
   });
 }
+export const askAlpha = (id, question, token) => request(`/analyses/${id}/ask`, token, { method: "POST", body: { question } }).then((r) => r.result);

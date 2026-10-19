@@ -112,6 +112,20 @@ describe("alpha API", () => {
     expect((await request(app).post("/api/alpha/analyses/nope/feedback").send({ findingId: "f", verdict: "useful" })).status).toBe(404);
   });
 
+  it("asks a question only on a finished analysis owned by the caller", async () => {
+    const { app, repo, engine } = build();
+    engine.ask = vi.fn(async () => ({ answer: "There are 5 rows.", verified: true }));
+    const { body } = await request(app).post("/api/alpha/analyses").send({ fileIds: [1] });
+    const url = `/api/alpha/analyses/${body.id}/ask`;
+    expect((await request(app).post(url).send({ question: "ab" })).status).toBe(400);
+    expect((await request(app).post(url).send({ question: "How many rows?" })).status).toBe(409);
+    repo.analyses[body.id].status = "done";
+    const r = await request(app).post(url).send({ question: "How many rows?" });
+    expect(r.body.result.answer).toBe("There are 5 rows.");
+    expect(engine.ask).toHaveBeenCalledWith({ analysis_id: body.id, question: "How many rows?" });
+    expect((await request(app).post("/api/alpha/analyses/nope/ask").send({ question: "How many rows?" })).status).toBe(404);
+  });
+
   it("sends the engine key and maps engine errors", async () => {
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ detail: "file is outside the upload folder" }) }));
     const client = createEngineClient({ baseUrl: "http://e", apiKey: "k", fetchImpl });

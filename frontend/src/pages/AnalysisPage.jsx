@@ -60,7 +60,7 @@ export default function AnalysisPage({ token }) {
     </section>
     {error && <div className="error-banner" role="alert"><span>!</span><div><p>{error}</p></div></div>}
     <div className="al-tabs" role="tablist">{TABS.map(([k, t]) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>{t}</button>)}</div>
-    {tab === "briefing" && <BriefingTab report={report} onOpenFinding={openFinding} onAnswer={onAnswer} answers={report.owner.answers}/>}
+    {tab === "briefing" && <BriefingTab report={report} onOpenFinding={openFinding} onAnswer={onAnswer} answers={report.owner.answers} analysisId={id} token={token}/>}
     {tab === "data" && <YourDataTab report={report}/>}
     {tab === "insights" && <InsightsTab report={report} feedback={report.owner.feedback} onFeedback={onFeedback} focusId={focusId}/>}
     {tab === "intelligence" && <IntelligenceTab report={report} onOpenFinding={openFinding}/>}

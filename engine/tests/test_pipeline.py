@@ -68,3 +68,31 @@ def test_two_unlinked_files_and_a_summary_file(env):
     kinds = {f["name"]: f["kind"] for f in rep["files"]}
     assert kinds == {"sales.csv": "events", "summary.csv": "summary"}
     assert "headline" in rep["briefing"]
+
+
+def test_pipeline_with_investigation_and_ask(env):
+    api, up, tmp = env
+    make_files(up)
+    from alpha_engine import pipeline
+    from alpha_engine.llm import ScriptedProvider
+    from alpha_engine.investigate.loop import make_investigator
+    from alpha_engine.investigate.ask import ask
+    answers = [{"action": "run", "why": "weekday check", "code": "result = df.groupby(df._t.dt.weekday).size()"}] 
+    class Always(ScriptedProvider):
+        def complete_json(self, system, payload):
+            self.calls.append(payload)
+            if not payload.get("results_so_far"):
+                return {"action": "run", "why": "count rows", "code": "result = len(df)"}
+            return {"action": "finish", "summary": "Row count was checked; the change lines up with the period shown in the numbers above."}
+    prov = Always([])
+    rep = pipeline.analyze("a3", [{"name": "shop.csv", "path": str(up / "shop.csv")}], {}, str(tmp / "data"), prov, investigate=make_investigator(prov, str(tmp / "data")))
+    inv = [f for f in rep["insights"]["findings"] if f.get("investigation")]
+    assert inv and inv[0]["investigation"]["verified"] and rep["ai"]["investigation"]["verified_summaries"] >= 1
+    class A(ScriptedProvider):
+        def complete_json(self, system, payload):
+            if not payload["results_so_far"]:
+                return {"action": "run", "why": "n", "code": "result = len(df)"}
+            n = payload["results_so_far"][0]["result"]
+            return {"action": "finish", "answer": f"There are {n} counted rows."}
+    r = ask(A([]), str(tmp / "data"), "a3", "How many rows count?", rep)
+    assert r["verified"] and "counted rows" in r["answer"]

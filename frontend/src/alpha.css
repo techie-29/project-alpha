@@ -36,3 +36,5 @@
 .al-analyses{list-style:none;margin:0;padding:0;display:grid;gap:8px}.al-analyses a{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text);text-decoration:none}.al-analyses a:hover{border-color:var(--accent)}.al-analyses small{color:var(--danger);flex-basis:100%}
 .al-report .page-header h1{font-size:20px;word-break:break-word}
 @media (max-width:540px){.al-grid2{grid-template-columns:1fr}.al-hero h2{font-size:21px}}
+.al-ai{background:#0b1512;border:1px solid #1f5a47;border-radius:8px;padding:12px}.al-ask{display:flex;gap:8px}.al-ask input{flex:1;background:#0b1015;color:var(--text);border:1px solid var(--border-bright);border-radius:8px;padding:10px;font:inherit}
+.al-answer{margin-top:12px}.al-answer pre{background:#0b1015;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;overflow:auto;white-space:pre-wrap}.al-answer summary{cursor:pointer;color:var(--accent);font-size:12px}

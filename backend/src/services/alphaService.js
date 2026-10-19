@@ -85,6 +85,13 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
       if (!(await repository.getAnalysis(businessAccountId, id))) throw httpError(404, "Analysis not found");
       await repository.saveFeedback({ businessAccountId, analysisId: id, findingId: findingId.slice(0, 80), verdict, note: note ? String(note).slice(0, 500) : null });
     },
+    async ask(businessAccountId, id, { question }) {
+      if (typeof question !== "string" || question.trim().length < 3) throw httpError(400, "Type a question first");
+      const a = await repository.getAnalysis(businessAccountId, id);
+      if (!a) throw httpError(404, "Analysis not found");
+      if (a.status !== "done") throw httpError(409, "The analysis is not finished yet");
+      return engine.ask({ analysis_id: id, question: question.trim().slice(0, 500) });
+    },
     async answer(businessAccountId, id, { questionId, answer }) {
       if (!questionId || typeof answer !== "string" || !answer.trim()) throw httpError(400, "questionId and answer are required");
       if (!(await repository.getAnalysis(businessAccountId, id))) throw httpError(404, "Analysis not found");

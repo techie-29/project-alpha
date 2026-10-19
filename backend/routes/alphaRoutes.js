@@ -20,6 +20,7 @@ function createAlphaRouter({ service = createAlphaService(), upload = alphaUploa
   router.get("/analyses/:id", wrap(async (req, res) => res.json({ success: true, analysis: await service.status(uid(req), req.params.id) })));
   router.get("/analyses/:id/report", wrap(async (req, res) => res.json({ success: true, report: await service.report(uid(req), req.params.id) })));
   router.post("/analyses/:id/feedback", wrap(async (req, res) => { await service.feedback(uid(req), req.params.id, req.body || {}); res.json({ success: true }); }));
+  router.post("/analyses/:id/ask", wrap(async (req, res) => res.json({ success: true, result: await service.ask(uid(req), req.params.id, req.body || {}) })));
   router.post("/analyses/:id/answers", wrap(async (req, res) => { await service.answer(uid(req), req.params.id, req.body || {}); res.json({ success: true }); }));
 
   return router;

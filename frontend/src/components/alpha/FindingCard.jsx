@@ -54,6 +54,10 @@ export default function FindingCard({ finding: f, feedback, onFeedback, defaultO
         {n.impact !== null && n.impact !== undefined && <div><span>Amount involved</span><strong>{amount(n.impact, n.unit)}</strong></div>}
         {n.impact_share ? <div><span>Share of total</span><strong>{percent(n.impact_share, 1)}</strong></div> : null}
       </div>
+      {f.investigation?.summary && <div className="al-block al-ai"><h4>What Alpha's AI helper checked</h4>
+        <p>{f.investigation.summary}</p>
+        {f.investigation.checks?.length > 0 && <ul className="al-plain">{f.investigation.checks.map((c, i) => <li key={i}>{typeof c === "string" ? c : c.why}</li>)}</ul>}
+        <p className="al-muted">Every number in this note was produced by a calculation on your data, not by the AI. It describes what lines up, not a cause.</p></div>}
       <Drivers drivers={f.drivers}/>
       {f.folded?.length > 0 && <div className="al-block"><h4>Also part of this</h4><ul className="al-plain">{f.folded.slice(0, 6).map((x, i) => <li key={i}>{typeof x === "string" ? x : x.title}</li>)}</ul></div>}
       {f.caveats?.length > 0 && <div className="al-block al-caveat"><h4>Keep in mind</h4><ul className="al-plain">{f.caveats.map((c, i) => <li key={i}>{c}</li>)}</ul></div>}

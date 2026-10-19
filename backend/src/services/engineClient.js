@@ -29,6 +29,7 @@ function createEngineClient({ baseUrl = process.env.ENGINE_URL || "http://127.0.
     analyze: (body) => call("POST", "/v1/analyze", body),
     job: (id) => call("GET", `/v1/jobs/${encodeURIComponent(id)}`),
     report: (id) => call("GET", `/v1/reports/${encodeURIComponent(id)}`),
+    ask: (body) => call("POST", "/v1/ask", body),
     health: () => call("GET", "/v1/health")
   };
 }

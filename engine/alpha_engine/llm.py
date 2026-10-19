@@ -88,3 +88,18 @@ def default_provider() -> Provider:
         return GeminiProvider()
     except ProviderError:
         return NullProvider()
+
+
+class ScriptedProvider(Provider):
+    """Test double: returns the given answers in order (a callable answer receives the payload)."""
+    name = "scripted"
+
+    def __init__(self, answers: list):
+        self.answers, self.calls = list(answers), []
+
+    def complete_json(self, system: str, payload: dict) -> dict:
+        self.calls.append({"system": system, "payload": payload})
+        if not self.answers:
+            raise ProviderError("script exhausted")
+        a = self.answers.pop(0)
+        return a(payload) if callable(a) else a

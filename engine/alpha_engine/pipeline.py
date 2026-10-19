@@ -150,6 +150,6 @@ def save_state(path: Path, state: list) -> None:
     for v, sr in state:
         keep = [c for c in v.df.columns if not c.startswith("__rate__")]
         slim.append({"name": v.name, "time_col": v.time_col, "money_col": v.money_col, "currency_col": v.currency_col, "slices": v.slices,
-                     "ok": v.ok.values, "df": v.df[keep].copy(), "step": sr.axis.step, "notes": v.notes})
+                     "ok": v.ok.values, "roles": {c: {k: i[k] for k in ("role", "unique") if k in i} for c, i in v.roles.items()}, "df": v.df[keep].copy(), "step": sr.axis.step, "notes": v.notes})
     with gzip.open(path, "wb") as fh:
         pickle.dump(slim, fh, protocol=5)
