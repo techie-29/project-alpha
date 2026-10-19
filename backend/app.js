@@ -6,14 +6,8 @@ const multer = require("multer");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
-const headerMappingRoutes = require("./routes/headerMappingRoutes");
 const authRoutes = require("./routes/authRoutes");
-const uploadRoutes = require("./routes/uploadroutes");
 const adminRoutes = require("./routes/adminRoutes");
-const validationRoutes = require("./routes/validationRoutes");
-const transformationRoutes = require("./routes/transformationRoutes");
-const analyticsRoutes = require("./routes/analyticsRoutes");
-const datasetLibraryRoutes = require("./routes/datasetLibraryRoutes");
 const settingsRoutes = require("./routes/settingsRoutes");
 const { createAlphaRouter } = require("./routes/alphaRoutes");
 const authMiddleware = require("./middleware/authMiddleware");
@@ -35,18 +29,12 @@ app.get("/api/health", (req, res) => {
     res.json({ success: true, message: "Project Alpha backend is running" });
 });
 app.use("/api/auth", authRoutes);
-app.use("/api/upload", authMiddleware, uploadLimiter, uploadRoutes);
 app.use("/api/admin", authMiddleware, adminMiddleware, adminRoutes);
-app.use("/api/header-mapping",authMiddleware,headerMappingRoutes);
-app.use("/api/validation", authMiddleware, validationRoutes);
-app.use("/api/transformation", authMiddleware, transformationRoutes);
-app.use("/api/analytics", authMiddleware, analyticsRoutes);
-app.use("/api/datasets", authMiddleware, datasetLibraryRoutes);
 app.use("/api/settings", authMiddleware, settingsRoutes);
-app.use("/api/alpha", authMiddleware, createAlphaRouter());
+app.use("/api/alpha", authMiddleware, uploadLimiter, createAlphaRouter());
 
 app.use((err, req, res, next) => {
-    const isUploadRequest = req.originalUrl.startsWith("/api/upload");
+    const isUploadRequest = req.originalUrl.startsWith("/api/alpha");
     const status = err instanceof multer.MulterError ? 400 : err.status || (isUploadRequest ? 400 : 500);
     if (status >= 500) console.error(err);
     return res.status(status).json({

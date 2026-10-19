@@ -1,7 +1,13 @@
 const express = require("express");
 const db = require("../config/db");
 
+const fs = require("fs");
+const path = require("path");
 const router = express.Router();
+
+const UPLOAD_ROOT = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, "..", "uploads"), "alpha");
+const FILE_FIELDS = `f.id, f.original_name AS fileName, LOWER(SUBSTRING_INDEX(f.original_name, '.', -1)) AS fileFormat, f.size_bytes AS fileSizeBytes,
+    NULL AS sheetName, 0 AS rowCount, 0 AS columnCount, 'stored' AS status, f.created_at AS createdAt`;
 
 async function writeAudit(executor, adminId, action, targetType, targetId, details = {}) {
     await executor.execute(
@@ -22,20 +28,11 @@ router.get("/dashboard", async (req, res, next) => {
             FROM business_accounts
         `);
         const [[ingestionStats]] = await db.execute(`
-            SELECT COUNT(*) AS totalUploads,
-                   COALESCE(SUM(row_count), 0) AS metadataRows,
-                   COALESCE(SUM(column_count), 0) AS totalColumns
-            FROM ingestions
+            SELECT COUNT(*) AS totalUploads, 0 AS metadataRows, 0 AS totalColumns FROM alpha_files
         `);
-        const [[storedRowStats]] = await db.execute("SELECT COUNT(*) AS totalRows FROM ingestion_rows");
+        const [[storedRowStats]] = await db.execute("SELECT COUNT(*) AS totalRows FROM alpha_analyses WHERE status = 'done'");
         const [recentUploads] = await db.execute(`
-            SELECT i.id, i.original_file_name AS fileName, i.file_format AS fileFormat,
-                   i.row_count AS rowCount, i.column_count AS columnCount, i.status,
-                   i.created_at AS createdAt,
-                   COALESCE(b.business_name, 'Unknown business') AS businessName, b.email
-            FROM ingestions i
-            LEFT JOIN business_accounts b ON b.id = i.business_account_id
-            ORDER BY i.created_at DESC LIMIT 8
+            SELECT ${FILE_FIELDS}, COALESCE(b.business_name, 'Unknown business') AS businessName, b.email FROM alpha_files f LEFT JOIN business_accounts b ON b.id = f.business_account_id ORDER BY f.created_at DESC LIMIT 8
         `);
         return res.json({ success: true, data: { stats: { ...accountStats, ...ingestionStats, totalRows: storedRowStats.totalRows }, recentUploads } });
     } catch (error) { next(error); }
@@ -63,7 +60,7 @@ router.get("/users", async (req, res, next) => {
                    b.account_status AS accountStatus, b.created_at AS createdAt,
                    COUNT(i.id) AS uploadCount
             FROM business_accounts b
-            LEFT JOIN ingestions i ON i.business_account_id = b.id
+            LEFT JOIN alpha_files i ON i.business_account_id = b.id
             GROUP BY b.id, b.business_name, b.email, b.role, b.account_status, b.created_at
             ORDER BY b.created_at DESC
         `);
@@ -95,7 +92,7 @@ router.get("/users/:id/datasets", async (req, res, next) => {
     try {
         const accountId = Number(req.params.id);
         if (!Number.isInteger(accountId)) return res.status(400).json({ success: false, message: "Invalid account id" });
-        const [datasets] = await db.execute(`SELECT id, original_file_name AS fileName, file_format AS fileFormat, row_count AS rowCount, column_count AS columnCount, status, created_at AS createdAt FROM ingestions WHERE business_account_id = ? ORDER BY created_at DESC`, [accountId]);
+        const [datasets] = await db.execute(`SELECT ${FILE_FIELDS} FROM alpha_files f WHERE f.business_account_id = ? ORDER BY f.created_at DESC`, [accountId]);
         return res.json({ success: true, data: { datasets } });
     } catch (error) { next(error); }
 });
@@ -111,18 +108,22 @@ router.delete("/users/:id", async (req, res, next) => {
         const [[target]] = await connection.execute("SELECT business_name AS businessName, email, role FROM business_accounts WHERE id = ? FOR UPDATE", [accountId]);
         if (!target) { await connection.rollback(); return res.status(404).json({ success: false, message: "Account not found" }); }
         if (target.role === "admin") { await connection.rollback(); return res.status(400).json({ success: false, message: "Administrator accounts cannot be deleted from business controls" }); }
-        const [[counts]] = await connection.execute(`SELECT COUNT(DISTINCT i.id) AS datasetCount, COUNT(r.id) AS rowCount FROM ingestions i LEFT JOIN ingestion_rows r ON r.ingestion_id = i.id WHERE i.business_account_id = ?`, [accountId]);
+        const [[counts]] = await connection.execute(`SELECT COUNT(*) AS datasetCount, 0 AS rowCount FROM alpha_files WHERE business_account_id = ?`, [accountId]);
         await writeAudit(connection, req.user.id, "business_deleted", "business_account", accountId, { businessName: target.businessName, email: target.email, datasetCount: counts.datasetCount, rowCount: counts.rowCount });
+        for (const table of ["alpha_feedback", "alpha_answers", "alpha_analyses", "alpha_files"]) {
+            await connection.execute(`DELETE FROM ${table} WHERE business_account_id = ?`, [accountId]);
+        }
         await connection.execute("DELETE FROM business_accounts WHERE id = ?", [accountId]);
         await connection.commit();
-        return res.json({ success: true, message: "Business account and its related ingestions were deleted" });
+        fs.rm(path.join(UPLOAD_ROOT, String(accountId)), { recursive: true, force: true }, () => {});
+        return res.json({ success: true, message: "Business account, its files and its analyses were deleted" });
     } catch (error) { await connection.rollback(); next(error); }
     finally { connection.release(); }
 });
 
 router.get("/datasets", async (req, res, next) => {
     try {
-        const [datasets] = await db.execute(`SELECT i.id, i.original_file_name AS fileName, i.file_format AS fileFormat, i.file_size_bytes AS fileSizeBytes, i.sheet_name AS sheetName, i.row_count AS rowCount, i.column_count AS columnCount, i.status, i.created_at AS createdAt, COALESCE(b.business_name, 'Unknown business') AS businessName, b.email FROM ingestions i LEFT JOIN business_accounts b ON b.id = i.business_account_id ORDER BY i.created_at DESC`);
+        const [datasets] = await db.execute(`SELECT ${FILE_FIELDS}, COALESCE(b.business_name, 'Unknown business') AS businessName, b.email FROM alpha_files f LEFT JOIN business_accounts b ON b.id = f.business_account_id ORDER BY f.created_at DESC`);
         return res.json({ success: true, data: { datasets } });
     } catch (error) { next(error); }
 });
@@ -131,10 +132,9 @@ router.get("/datasets/:id", async (req, res, next) => {
     try {
         const datasetId = Number(req.params.id);
         if (!Number.isInteger(datasetId)) return res.status(400).json({ success: false, message: "Invalid dataset id" });
-        const [[dataset]] = await db.execute(`SELECT i.id, i.original_file_name AS fileName, i.file_format AS fileFormat, i.file_size_bytes AS fileSizeBytes, i.sheet_name AS sheetName, i.row_count AS rowCount, i.column_count AS columnCount, i.headers_json AS headers, i.profile_json AS profile, i.status, i.created_at AS createdAt, b.business_name AS businessName, b.email FROM ingestions i LEFT JOIN business_accounts b ON b.id = i.business_account_id WHERE i.id = ?`, [datasetId]);
+        const [[dataset]] = await db.execute(`SELECT ${FILE_FIELDS}, NULL AS headers, NULL AS profile, b.business_name AS businessName, b.email FROM alpha_files f LEFT JOIN business_accounts b ON b.id = f.business_account_id WHERE f.id = ?`, [datasetId]);
         if (!dataset) return res.status(404).json({ success: false, message: "Dataset not found" });
-        const [rows] = await db.execute(`SELECT source_row_number AS rowNumber, raw_data AS rawData FROM ingestion_rows WHERE ingestion_id = ? ORDER BY source_row_number ASC LIMIT 25`, [datasetId]);
-        return res.json({ success: true, data: { dataset, previewRows: rows } });
+        return res.json({ success: true, data: { dataset, previewRows: [] } });
     } catch (error) { next(error); }
 });
 
@@ -144,12 +144,13 @@ router.delete("/datasets/:id", async (req, res, next) => {
     const connection = await db.getConnection();
     try {
         await connection.beginTransaction();
-        const [[dataset]] = await connection.execute(`SELECT i.original_file_name AS fileName, i.row_count AS rowCount, i.business_account_id AS businessAccountId, b.business_name AS businessName FROM ingestions i LEFT JOIN business_accounts b ON b.id = i.business_account_id WHERE i.id = ? FOR UPDATE`, [datasetId]);
+        const [[dataset]] = await connection.execute(`SELECT f.original_name AS fileName, f.stored_path AS storedPath, f.business_account_id AS businessAccountId, b.business_name AS businessName FROM alpha_files f LEFT JOIN business_accounts b ON b.id = f.business_account_id WHERE f.id = ? FOR UPDATE`, [datasetId]);
         if (!dataset) { await connection.rollback(); return res.status(404).json({ success: false, message: "Dataset not found" }); }
-        await writeAudit(connection, req.user.id, "dataset_deleted", "ingestion", datasetId, dataset);
-        await connection.execute("DELETE FROM ingestions WHERE id = ?", [datasetId]);
+        await writeAudit(connection, req.user.id, "dataset_deleted", "alpha_file", datasetId, { fileName: dataset.fileName, businessAccountId: dataset.businessAccountId, businessName: dataset.businessName });
+        await connection.execute("DELETE FROM alpha_files WHERE id = ?", [datasetId]);
         await connection.commit();
-        return res.json({ success: true, message: "Dataset and its stored ingestion rows were deleted" });
+        fs.rm(dataset.storedPath, { force: true }, () => {});
+        return res.json({ success: true, message: "File deleted" });
     } catch (error) { await connection.rollback(); next(error); }
     finally { connection.release(); }
 });
@@ -157,8 +158,8 @@ router.delete("/datasets/:id", async (req, res, next) => {
 router.get("/system", async (req, res, next) => {
     try {
         await db.execute("SELECT 1");
-        return res.json({ success: true, data: { backend: "online", database: "connected", supportedFormats: ["CSV", "XLSX", "XLS"], maximumUploadMb: 10, modules: [
-            { id: 1, name: "Authentication", status: "completed" }, { id: 2, name: "Data Ingestion", status: "completed" }, { id: 3, name: "Validation", status: "upcoming" }, { id: 4, name: "Transformation", status: "upcoming" }, { id: 5, name: "Business Data Storage", status: "upcoming" }, { id: 6, name: "Analytics", status: "upcoming" }, { id: 7, name: "Dashboard & Drilldown", status: "upcoming" }, { id: 8, name: "Reports & Export", status: "upcoming" }
+        return res.json({ success: true, data: { backend: "online", database: "connected", supportedFormats: ["CSV", "XLSX", "XLS"], maximumUploadMb: Number(process.env.ALPHA_MAX_FILE_MB || 100), modules: [
+            { id: 1, name: "Accounts and sign-in", status: "completed" }, { id: 2, name: "Understand and link files", status: "completed" }, { id: 3, name: "Scan for changes", status: "completed" }, { id: 4, name: "Reports", status: "completed" }, { id: 5, name: "AI investigation", status: "upcoming" }
         ] } });
     } catch (error) { next(error); }
 });
