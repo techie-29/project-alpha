@@ -49,6 +49,7 @@ class Prepared:
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     synthetic_time: bool = False
+    sources: list[str] = field(default_factory=list)   # files this view was built from
 
 
 def _drop_total_rows(df: pd.DataFrame, notes: list[str]) -> pd.DataFrame:
@@ -211,6 +212,8 @@ def prepare(df: pd.DataFrame, name: str = "file", confirmed: dict | None = None)
         if p.kind == "periodic":
             p.notes.append("About one row per date: each row is treated as a period total, so row counts are not a measure.")
     _status_logic(df, roles, p)
+    for c in [c for c in df.columns if c.startswith("__ok_")]:      # a parent record (e.g. the order) that does not count
+        p.ok &= df[c].fillna(True).astype(bool)
     _currency(df, roles, p)
     _measures(df, roles, p)
     cat = [c for c, i in roles.items() if i["role"] in ("category", "flag") and not i.get("period_part") and 2 <= i.get("unique", 0) <= 500
