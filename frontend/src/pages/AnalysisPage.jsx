@@ -26,7 +26,7 @@ export default function AnalysisPage({ token }) {
         setStatus(s);
         if (s.status === "done") { setReport(await getReport(id, token)); return; }
         if (s.status === "failed") return;
-        timer = setTimeout(poll, 2000);
+        timer = setTimeout(poll, 3000);
       } catch (e) { if (active) setError(e.message); }
     }
     poll();

@@ -21,7 +21,10 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: "draft-8", legacyHeaders: false });
-const uploadLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false });
+// Uploads and starting analyses are limited tightly; reading status and reports (polled while a run is in progress) gets plenty of room.
+const alphaWriteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false,
+    skip: (req) => req.method === "GET" || req.method === "HEAD" });
+const alphaReadLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 3000, standardHeaders: "draft-8", legacyHeaders: false });
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
@@ -31,7 +34,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", authMiddleware, adminMiddleware, adminRoutes);
 app.use("/api/settings", authMiddleware, settingsRoutes);
-app.use("/api/alpha", authMiddleware, uploadLimiter, createAlphaRouter());
+app.use("/api/alpha", authMiddleware, alphaReadLimiter, alphaWriteLimiter, createAlphaRouter());
 
 app.use((err, req, res, next) => {
     const isUploadRequest = req.originalUrl.startsWith("/api/alpha");
