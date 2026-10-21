@@ -55,6 +55,8 @@ def clean_numeric(s: pd.Series) -> pd.Series | None:
         v = pd.to_numeric(core, errors="coerce")
         return v.where(~neg, -v)
 
+    if len(t) > 5000 and conv(t.sample(5000, random_state=0)).notna().mean() < 0.9:
+        return None                                    # a sample already shows this is text: skip converting every row
     if conv(t).notna().mean() >= 0.95:
         out = pd.Series(np.nan, index=s.index)
         mask = s.notna()

@@ -1,5 +1,7 @@
 """Run the whole analysis toolbox over the business's frames and return every insight found, plus what was checked."""
 from __future__ import annotations
+import os
+import sys
 import time
 import numpy as np
 from . import groups, concentration, trends, relations, customers, stock, outliers, explore, changes
@@ -30,6 +32,17 @@ def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tupl
             checked[name] = extra
         out.extend(res)
 
+    sv = views_by_name.get(S.name) if S is not None else None
+    pool, fut = None, None
+    if sv is not None and _parallel_ok():
+        # the change scan is the longest step and independent of the others: start it in a forked process now
+        import concurrent.futures as cf
+        import multiprocessing as mp
+        try:
+            pool = cf.ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("fork"))
+            fut = pool.submit(_changes_job, sv, S)
+        except Exception:
+            pool, fut = None, None
     step("group differences", lambda: groups.run(S, cur, avg_order) if S is not None else [], 35)
     if L is not None:
         step("product differences", lambda: groups.run(L, cur, None, skip_cols=set(S.df.columns) if S is not None else None), 42)
@@ -40,7 +53,25 @@ def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tupl
     step("stock health", lambda: stock.run(K, [L, S], cur), 63)
     step("unusual values", lambda: outliers.run([L, S], cur), 66)
     step("hidden combinations", lambda: explore.run(S, cur), 72)
-    sv = views_by_name.get(S.name) if S is not None else None
-    step("changes over time", lambda: changes.run(sv, S), 85)
+    if fut is not None:
+        def collect():
+            try:
+                return fut.result(timeout=1800)
+            finally:
+                pool.shutdown(wait=False)
+        step("changes over time", collect, 85)
+    else:
+        step("changes over time", lambda: changes.run(sv, S), 85)
     checked["timing"] = timing
     return out, checked
+
+
+def _parallel_ok() -> bool:
+    flag = os.environ.get("ALPHA_PARALLEL", "")
+    if flag in ("0", "false", "no"):
+        return False
+    return flag in ("1", "true", "yes") or sys.platform.startswith("linux")
+
+
+def _changes_job(sv, S):
+    return changes.run(sv, S)
