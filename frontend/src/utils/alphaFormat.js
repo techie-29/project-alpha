@@ -14,7 +14,7 @@ export function fmtValue(v, fmt = "number", unit = "") {
   const x = Number(v);
   if (fmt === "pct") return `${(x * 100).toFixed(1)}%`;
   if (fmt === "rating") return x.toFixed(2);
-  if (fmt === "days") return `${x.toFixed(1)} days`;
+  if (fmt === "days") return `${x.toFixed(1)} ${["min", "hours", "days"].includes(unit) ? unit : "days"}`;
   if (fmt === "count") return compact(Math.round(x));
   const s = compact(x);
   return fmt === "money" && unit ? `${unit} ${s}` : s;

@@ -12,6 +12,7 @@ describe("alpha formatting", () => {
     expect(fmtValue(0.414, "pct")).toBe("41.4%");
     expect(fmtValue(3.677, "rating")).toBe("3.68");
     expect(fmtValue(4.56, "days")).toBe("4.6 days");
+    expect(fmtValue(20.18, "days", "min")).toBe("20.2 min");
   });
   it("shows changes in points for rates and percent otherwise", () => {
     expect(change(0.012, "pct")).toBe("+1.2 pts");

@@ -67,7 +67,7 @@ function OverviewPart({ ov }) {
         {f.from && <small className="al-muted">{f.from} to {f.to}</small>}{f.currencies?.length > 1 && <small className="al-muted">Currencies: {f.currencies.join(", ")}</small>}</div>)}</div>
       {ov.currencies?.length > 1 && <p className="al-note-warn">Money is shown in {ov.currency}, the largest currency. Other currencies are never added in; their totals are listed under Sales.</p>}
     </section>
-    <section><h3 className="al-h3">Key numbers</h3><div className="al-tiles">{ov.tiles.map((t) => <Tile key={t.metric} t={t}/>)}</div></section>
+    <section><h3 className="al-h3">Key numbers</h3>{ov.tiles.find((t) => t.note) && <p className="al-muted">{ov.tiles.find((t) => t.note).note}</p>}<div className="al-tiles">{ov.tiles.map((t) => <Tile key={t.metric} t={t}/>)}</div></section>
     {ov.sections.length > 0 && <section>
       <div className="al-sectabs" role="tablist" aria-label="Business areas">{ov.sections.map((s) => <button key={s.area} type="button" role="tab" aria-selected={s.area === area} className={s.area === area ? "is-on" : ""} onClick={() => setArea(s.area)}>{s.title} <span className="al-muted">{s.charts.length}</span></button>)}</div>
       {sec && <div className="al-chartgrid">{sec.charts.map((c) => <div key={c.id} className={c.type === "line" || c.type === "stacked" || c.type === "stacked_count" || c.type === "table" ? "al-wide" : ""}><Chart spec={c}/></div>)}</div>}

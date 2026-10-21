@@ -21,7 +21,7 @@ export default function Tile({ t }) {
     {spark.length > 2 && <div className="al-spark" aria-hidden="true"><ResponsiveContainer><AreaChart data={spark} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
       <Area type="monotone" dataKey="v" stroke="#3987e5" strokeWidth={1.5} fill="#3987e5" fillOpacity={0.1} dot={false} isAnimationActive={false} connectNulls/>
     </AreaChart></ResponsiveContainer></div>}
-    {t.note && <small className="al-muted">{t.note}</small>}
+
   </div>;
 }
 export { DEEMPH };
