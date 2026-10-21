@@ -57,6 +57,12 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
             vals = src[c]
             out[canon] = pd.to_numeric(vals, errors="coerce") if canon in NUMERIC_CANON else vals.astype("string").str.strip()
             F.canon[canon] = c
+    # keys of entities that are usually few (warehouses, staff, suppliers) are also groups to compare
+    for canon in ("site_id", "employee_id", "supplier_id"):
+        c = F.canon.get(canon)
+        if c and c in src.columns and 2 <= src[c].nunique(dropna=True) <= 200:
+            out[c] = src[c].astype("string").str.strip()
+            F.groups.setdefault(canon, []).append(c)
     used = set(F.canon.values())
     for c, v in concept_cols.items():
         con = CONCEPTS[v["concept"]]
