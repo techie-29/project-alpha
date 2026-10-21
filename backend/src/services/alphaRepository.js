@@ -80,4 +80,25 @@ async function listAnswers(businessAccountId, analysisId) {
   return rows;
 }
 
-module.exports = { addFile, listFiles, getFiles, deleteFile, createAnalysis, getAnalysis, listAnalyses, updateAnalysis, getReport, saveFeedback, listPatternPreferences, listFeedback, saveAnswer, listAnswers };
+async function listMemory(businessAccountId) {
+  const [rows] = await db.execute("SELECT column_key AS columnKey, concept FROM alpha_memory WHERE business_account_id=?", [businessAccountId]);
+  return Object.fromEntries(rows.map((r) => [r.columnKey, r.concept]));
+}
+async function saveMemory(businessAccountId, entries) {
+  for (const [columnKey, concept] of entries) {
+    await db.execute(
+      `INSERT INTO alpha_memory (business_account_id, column_key, concept) VALUES (?,?,?)
+       ON DUPLICATE KEY UPDATE concept=VALUES(concept)`, [businessAccountId, columnKey, concept]);
+  }
+}
+async function saveQuestion({ businessAccountId, analysisId, question, result }) {
+  await db.execute("INSERT INTO alpha_questions (business_account_id, analysis_id, question, result) VALUES (?,?,?,?)",
+    [businessAccountId, analysisId, question, JSON.stringify(result)]);
+}
+async function listQuestions(businessAccountId, analysisId) {
+  const [rows] = await db.execute(
+    "SELECT question, result, created_at AS createdAt FROM alpha_questions WHERE business_account_id=? AND analysis_id=? ORDER BY id ASC LIMIT 100", [businessAccountId, analysisId]);
+  return rows.map((r) => ({ question: r.question, result: parse(r.result), createdAt: r.createdAt }));
+}
+
+module.exports = { listMemory, saveMemory, saveQuestion, listQuestions,  addFile, listFiles, getFiles, deleteFile, createAnalysis, getAnalysis, listAnalyses, updateAnalysis, getReport, saveFeedback, listPatternPreferences, listFeedback, saveAnswer, listAnswers };

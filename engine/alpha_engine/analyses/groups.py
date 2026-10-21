@@ -111,7 +111,9 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
                     what = f"{fmt_value(abs(impact), 'money', unit)} {'more' if impact > 0 else 'less'} than if it matched the rest"
                 if what:
                     detail += " That is " + what + "."
-                rows = [{"group": str(uniq[j]), "value": float(vals[j]), "rows": int(cnt[j])} for j in np.argsort(-vals) if big[j] and np.isfinite(vals[j])][:14]
+                order = [j for j in np.argsort(-vals) if big[j] and np.isfinite(vals[j])]
+                shown = order[:14] if g in order[:14] else order[:13] + [g]          # the group in question is always on the chart
+                rows = [{"group": str(uniq[j]), "value": float(vals[j]), "rows": int(cnt[j])} for j in sorted(shown, key=lambda j: -vals[j])]
                 ev_mask = pd.Series(False, index=F.df.index)
                 ev_mask.loc[F.df.index[mm][codes == g]] = True
                 if t.kind == "rate" and t.num in F.df.columns:

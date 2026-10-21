@@ -26,6 +26,7 @@ class Frame:
     currencies: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     status_flags: list[tuple[str, str, str]] = field(default_factory=list)   # (status column, value, flag column)
+    attributes: set = field(default_factory=set)                              # columns that describe a customer/product, not the row
 
     def has(self, *names) -> bool:
         return all(n in self.df.columns and self.df[n].notna().any() for n in names)
@@ -73,6 +74,8 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
             out[c] = src[c].astype("string").str.strip()
         elif con.kind == "number" and c not in used:
             F.extra_numbers.append((c, "number" if v.get("attribute_of") else v["concept"]))
+            if v.get("attribute_of"):
+                F.attributes.add(c)
             out[c] = pd.to_numeric(src[c], errors="coerce")
         elif con.kind == "key" and c not in used:
             F.groups.setdefault(v["concept"], []).append(c)

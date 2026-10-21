@@ -24,7 +24,9 @@ function fakeRepo() {
     updateAnalysis: vi.fn(async (o, id, patch) => { Object.assign(analyses[id], patch); }),
     getReport: vi.fn(async (o, id) => (analyses[id]?.owner === o && analyses[id].report) || null),
     saveFeedback: vi.fn(async () => {}), listPatternPreferences: vi.fn(async () => [{ patternKey: "net_sales|region", verdict: "not_useful" }]), listFeedback: vi.fn(async () => []),
-    saveAnswer: vi.fn(async () => {}), listAnswers: vi.fn(async () => [])
+    saveAnswer: vi.fn(async () => {}), listAnswers: vi.fn(async () => []),
+    listMemory: vi.fn(async () => ({ ship_mode: "channel" })), saveMemory: vi.fn(async () => {}),
+    saveQuestion: vi.fn(async () => {}), listQuestions: vi.fn(async () => [{ question: "q1", result: { answer: "a1" } }])
   };
 }
 
@@ -122,7 +124,8 @@ describe("alpha API", () => {
     repo.analyses[body.id].status = "done";
     const r = await request(app).post(url).send({ question: "How many rows?" });
     expect(r.body.result.answer).toBe("There are 5 rows.");
-    expect(engine.ask).toHaveBeenCalledWith({ analysis_id: body.id, question: "How many rows?" });
+    expect(engine.ask).toHaveBeenCalledWith({ analysis_id: body.id, question: "How many rows?", history: [{ q: "q1", a: "a1" }] });
+    expect(repo.saveQuestion).toHaveBeenCalledWith(expect.objectContaining({ question: "How many rows?" }));
     expect((await request(app).post("/api/alpha/analyses/nope/ask").send({ question: "How many rows?" })).status).toBe(404);
   });
 
@@ -130,10 +133,19 @@ describe("alpha API", () => {
     const { app, repo, engine } = build();
     const { body } = await request(app).post("/api/alpha/analyses").send({ fileIds: [1] });
     expect(engine.analyze).toHaveBeenCalledWith(expect.objectContaining({ preferences: { "net_sales|region": "not_useful" } }));
-    repo.analyses[body.id].report = { insights: { findings: [{ id: "f1", pattern: "net_sales|region" }] } };
+    repo.analyses[body.id].report = { insights: { items: [{ id: "f1", pattern: "net_sales|region" }] } };
     repo.analyses[body.id].status = "done";
     await request(app).post(`/api/alpha/analyses/${body.id}/feedback`).send({ findingId: "f1", verdict: "useful" });
     expect(repo.saveFeedback).toHaveBeenCalledWith(expect.objectContaining({ patternKey: "net_sales|region", verdict: "useful" }));
+  });
+
+  it("remembers confirmed column meanings and sends them to the engine", async () => {
+    const { app, repo, engine } = build();
+    await request(app).post("/api/alpha/analyses").send({ fileIds: [1], confirmations: { concepts: { "a.csv::QtyOnHand": "stock_level", "a.csv::x": "BAD VALUE!" } } });
+    expect(repo.saveMemory).toHaveBeenCalledWith(7, [["qty_on_hand", "stock_level"]]);
+    expect(engine.analyze).toHaveBeenCalledWith(expect.objectContaining({ memory: { ship_mode: "channel" } }));
+    await request(app).post("/api/alpha/read").send({ fileIds: [1] });
+    expect(engine.read).toHaveBeenCalledWith(expect.objectContaining({ memory: { ship_mode: "channel" } }));
   });
 
   it("exports a finished report as pdf or xlsx and refuses other formats", async () => {

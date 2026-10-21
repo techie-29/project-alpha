@@ -9,6 +9,20 @@ function httpError(status, message) {
   return error;
 }
 
+/** Same normalisation as the engine (model/infer.py tokens): 'QtyOnHand' / 'qty on-hand' -> 'qty_on_hand'. */
+function columnKey(name) {
+  return String(name).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[%#]/g, " pct ").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).join("_");
+}
+
+function memoryFromConfirmations(confirmations) {
+  const out = [];
+  for (const [key, concept] of Object.entries(confirmations?.concepts || {})) {
+    const col = key.split("::").slice(1).join("::");
+    if (col && typeof concept === "string" && /^[a-z_]{2,40}$/.test(concept)) out.push([columnKey(col), concept]);
+  }
+  return out;
+}
+
 function createAlphaService({ repository = defaultRepository, engine = createEngineClient(), removeFile = (p) => fs.promises.unlink(p).catch(() => {}) } = {}) {
   async function filesFor(businessAccountId, fileIds) {
     const ids = [...new Set((fileIds || []).map(Number).filter(Number.isInteger))];
@@ -34,7 +48,8 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
     },
     async read(businessAccountId, { fileIds, confirmations }) {
       const files = await filesFor(businessAccountId, fileIds);
-      return engine.read({ files, confirmations: confirmations || {}, use_ai: true });
+      const memory = await repository.listMemory(businessAccountId);
+      return engine.read({ files, confirmations: confirmations || {}, use_ai: true, memory });
     },
     async start(businessAccountId, { fileIds, confirmations }) {
       const files = await filesFor(businessAccountId, fileIds);
@@ -42,8 +57,11 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
       await repository.createAnalysis({ id, businessAccountId, fileIds: files.map((f) => f.id), confirmations });
       const preferences = {};
       for (const row of await repository.listPatternPreferences(businessAccountId)) preferences[row.patternKey] = row.verdict;
+      const remembered = memoryFromConfirmations(confirmations);
+      if (remembered.length) await repository.saveMemory(businessAccountId, remembered);
+      const memory = await repository.listMemory(businessAccountId);
       try {
-        await engine.analyze({ analysis_id: id, files, confirmations: confirmations || {}, use_ai: true, preferences });
+        await engine.analyze({ analysis_id: id, files, confirmations: confirmations || {}, use_ai: true, preferences, memory });
       } catch (error) {
         await repository.updateAnalysis(businessAccountId, id, { status: "failed", error: error.message.slice(0, 480) });
         throw error;
@@ -86,7 +104,7 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
       if (!findingId || typeof findingId !== "string") throw httpError(400, "findingId is required");
       if (!(await repository.getAnalysis(businessAccountId, id))) throw httpError(404, "Analysis not found");
       const report = await repository.getReport(businessAccountId, id);
-      const finding = report?.insights?.findings?.find((f) => f.id === findingId);
+      const finding = (report?.insights?.items || report?.insights?.findings || []).find((f) => f.id === findingId);
       await repository.saveFeedback({ businessAccountId, analysisId: id, findingId: findingId.slice(0, 80), patternKey: finding?.pattern || null, verdict, note: note ? String(note).slice(0, 500) : null });
     },
     async export(businessAccountId, id, format) {
@@ -100,7 +118,15 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
       const a = await repository.getAnalysis(businessAccountId, id);
       if (!a) throw httpError(404, "Analysis not found");
       if (a.status !== "done") throw httpError(409, "The analysis is not finished yet");
-      return engine.ask({ analysis_id: id, question: question.trim().slice(0, 500) });
+      const earlier = await repository.listQuestions(businessAccountId, id);
+      const history = earlier.slice(-4).map((q) => ({ q: q.question, a: q.result?.answer || q.result?.note || "" }));
+      const result = await engine.ask({ analysis_id: id, question: question.trim().slice(0, 500), history });
+      await repository.saveQuestion({ businessAccountId, analysisId: id, question: question.trim().slice(0, 500), result });
+      return result;
+    },
+    async questions(businessAccountId, id) {
+      if (!(await repository.getAnalysis(businessAccountId, id))) throw httpError(404, "Analysis not found");
+      return repository.listQuestions(businessAccountId, id);
     },
     async answer(businessAccountId, id, { questionId, answer }) {
       if (!questionId || typeof answer !== "string" || !answer.trim()) throw httpError(400, "questionId and answer are required");
@@ -114,4 +140,4 @@ function pick(a) {
   return { id: a.id, status: a.status, stage: a.stage, progress: a.progress, error: a.error, createdAt: a.createdAt, finishedAt: a.finishedAt };
 }
 
-module.exports = { createAlphaService };
+module.exports = { createAlphaService, columnKey };

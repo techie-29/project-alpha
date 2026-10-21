@@ -61,3 +61,4 @@ export async function downloadExport(id, format, token) {
   a.href = url; a.download = `alpha-report.${format}`; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
+export const listQuestions = (id, token) => request(`/analyses/${id}/questions`, token).then((r) => r.questions || []);

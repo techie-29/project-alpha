@@ -30,6 +30,8 @@ def variables(F) -> list[tuple[str, str, str, int]]:
         add("_margin_row", "margin", "pct", +1)
     add("unit_price", "unit price", "money", 0)
     for c, cid in F.extra_numbers[:6]:
+        if c in F.attributes:
+            continue                                 # a customer's lifetime value is not a property of each order
         if cid in ("points", "activity_count", "percent", "number", "money_other") and c in d.columns:
             add(c, c.replace("_", " "), "number", 0)
     add("rating", "rating", "rating", +1)                # a result: always the second variable

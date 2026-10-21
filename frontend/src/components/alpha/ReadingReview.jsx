@@ -1,58 +1,51 @@
-import { CHOOSABLE_ROLES, ROLE_LABELS } from "../../utils/alphaFormat";
+import { useMemo } from "react";
+import { ROLE_TEXT } from "../../utils/alphaFormat";
 
-function ColumnRow({ file, c, value, onChange }) {
-  const current = value || c.role;
-  const shown = CHOOSABLE_ROLES.includes(current) ? CHOOSABLE_ROLES : [current, ...CHOOSABLE_ROLES];
-  return <tr className={c.needs_confirmation && !value ? "al-unsure" : ""}>
-    <td><code>{c.name}</code></td>
-    <td>
-      <select value={current} onChange={(e) => onChange(`${file.name}::${c.name}`, e.target.value === c.role ? null : e.target.value)} aria-label={`How to read ${c.name}`}>
-        {shown.map((r) => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
-      </select>
-      {value && <span className="al-chip al-chip-mine">your choice</span>}
-    </td>
-    <td className="al-why">
-      {c.reasons[0]}
-      {c.ai && c.ai.accepted && <span className="al-chip">AI agrees: {c.ai.reason}</span>}
-      {c.needs_confirmation && !value && <span className="al-chip al-chip-warn">please check</span>}
-    </td>
-  </tr>;
+const KIND_FOR_TYPE = { measure: ["number"], category: ["group", "key", "text"], flag: ["group"], id: ["key", "text", "group"], time: ["date"], text: ["text", "key", "group"] };
+const AREA_ORDER = ["sales", "costs", "products", "stock", "customers", "operations", "service", "people", "general"];
+
+function ConceptSelect({ col, concepts, value, onChange }) {
+  const kinds = KIND_FOR_TYPE[col.type] || ["number", "group", "key", "text", "date"];
+  const opts = concepts.filter((c) => kinds.includes(c.kind)).sort((a, b) => AREA_ORDER.indexOf(a.area) - AREA_ORDER.indexOf(b.area) || a.label.localeCompare(b.label));
+  const current = value || col.concept;
+  return <select value={current || ""} onChange={(e) => onChange(e.target.value === col.concept ? null : e.target.value)} aria-label={`What ${col.name} means`}>
+    {!current && <option value="">(not read)</option>}
+    {opts.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+  </select>;
 }
 
 export default function ReadingReview({ reading, choices, setChoices }) {
-  const setRole = (key, role) => setChoices((c) => { const roles = { ...c.roles }; if (role) roles[key] = role; else delete roles[key]; return { ...c, roles }; });
+  const setConcept = (key, cid) => setChoices((c) => { const concepts = { ...c.concepts }; if (cid) concepts[key] = cid; else delete concepts[key]; return { ...c, concepts }; });
   const setLink = (key, use) => setChoices((c) => ({ ...c, links: { ...c.links, [key]: use } }));
   const setOrder = (name, on) => setChoices((c) => ({ ...c, rowOrder: { ...c.rowOrder, [name]: on } }));
-  const unsure = reading.files.reduce((n, f) => n + f.columns.filter((c) => c.needs_confirmation && !choices.roles[`${f.name}::${c.name}`]).length, 0);
+  const unsure = useMemo(() => reading.files.reduce((n, f) => n + f.columns.filter((c) => c.needs_confirmation && !choices.concepts[`${f.name}::${c.name}`]).length, 0), [reading, choices]);
   const pending = reading.links.filter((l) => l.needs_confirmation && choices.links[l.key] === undefined);
-
   return <div className="al-stack">
     <div className={`al-panel ${unsure || pending.length ? "al-caveat" : ""}`}>
-      <h3 className="al-h3">How I read your files</h3>
-      <p>{unsure || pending.length ? `${unsure} column${unsure === 1 ? "" : "s"} and ${pending.length} link${pending.length === 1 ? "" : "s"} need a quick look. Everything else is clear. You can still run the analysis, but findings that rely on an unclear column are less certain.` : "Everything was clear. Check the table if you like, or run the analysis."}</p>
+      <h3 className="al-h3">How I read your business</h3>
+      <p>{unsure || pending.length ? `${unsure} column${unsure === 1 ? "" : "s"} and ${pending.length} link${pending.length === 1 ? "" : "s"} need a quick look (marked "please check"). You can run now, but findings that use them are less certain.` : "Everything was clear. Change anything that is wrong, then run the analysis. Alpha remembers your choices for next time."}</p>
+      {reading.ai_review?.status === "ok" && <p className="al-muted">The AI helper reviewed {reading.ai_review.reviewed} unsure column(s); {reading.ai_review.accepted} suggestion(s) passed Alpha's value checks.</p>}
     </div>
-
-    {reading.links.length > 0 && <div className="al-panel">
-      <h4>Links between files</h4>
-      <p className="al-muted">A link lets Alpha look at one file by the groups in another (for example, sales by customer region). Rows are never duplicated.</p>
-      {reading.links.map((l) => {
-        const on = choices.links[l.key] !== undefined ? choices.links[l.key] : l.use;
-        return <label key={l.key} className="al-link">
-          <input type="checkbox" checked={on} onChange={(e) => setLink(l.key, e.target.checked)}/>
-          <span><strong>{l.child}</strong> · {l.child_col} → <strong>{l.parent}</strong> · {l.parent_col}
-            <small>{Math.round(l.coverage * 100)}% of keys match. {l.reasons.slice(1, 3).join(". ")}{l.needs_confirmation && choices.links[l.key] === undefined ? " — please confirm." : ""}</small></span>
-        </label>;
-      })}
+    {reading.links.length > 0 && <div className="al-panel"><h4>How the files connect</h4>
+      <p className="al-muted">A link lets Alpha treat the files as one business (for example, sales by customer segment, or stock against sales). Rows are never duplicated.</p>
+      {reading.links.map((l) => { const on = choices.links[l.key] !== undefined ? choices.links[l.key] : l.use; return <label key={l.key} className="al-link">
+        <input type="checkbox" checked={on} onChange={(e) => setLink(l.key, e.target.checked)}/>
+        <span><strong>{l.child}</strong> · {l.child_col} → <strong>{l.parent}</strong> · {l.parent_col}<small>{Math.round(l.coverage * 100)}% of keys match.{l.needs_confirmation && choices.links[l.key] === undefined ? " Please confirm." : ""}</small></span></label>; })}
     </div>}
-
     {reading.files.map((f) => <div className="al-panel" key={f.name}>
-      <div className="al-panel-head"><h4>{f.name}</h4><span className="al-chip">{f.rows.toLocaleString()} rows · {({ events: "one row per event", periodic: "one row per period", reference: "reference table", dimension: "lookup table", summary: "summary (skipped)", no_time: "no dates" })[f.kind] || f.kind}</span></div>
+      <div className="al-panel-head"><h4>{f.name}</h4><span className="al-chip">{ROLE_TEXT[f.role] || f.role}{f.entity ? ` · ${f.entity}` : ""} · {f.rows.toLocaleString()} rows</span></div>
+      <p className="al-muted">{f.role_reason}</p>
+      {f.identities?.length > 0 && <p className="al-muted">Found exact arithmetic between columns: {f.identities.slice(0, 4).join("; ")}.</p>}
       {f.warnings.map((w, i) => <p key={i} className="al-note-warn">{w}</p>)}
-      {f.notes.slice(0, 4).map((n, i) => <p key={i} className="al-muted">{n}</p>)}
-      {f.ai && f.ai.status && <p className="al-muted">AI column review: {f.ai.status === "ok" ? "done" : f.ai.status === "skipped" ? "not needed" : "not available this time (rule-based reading used)"}.</p>}
-      {f.kind === "periodic" && !f.time_col && <label className="al-link"><input type="checkbox" checked={!!choices.rowOrder[f.name]} onChange={(e) => setOrder(f.name, e.target.checked)}/><span>This file has no dates, but its rows are in time order<small>Tick only if you are sure; Alpha will treat row order as time.</small></span></label>}
-      <div className="al-table-wrap"><table className="al-table al-compact"><thead><tr><th>Column</th><th>Read as</th><th>Why</th></tr></thead>
-        <tbody>{f.columns.filter((c) => c.role !== "empty").map((c) => <ColumnRow key={c.name} file={f} c={c} value={choices.roles[`${f.name}::${c.name}`]} onChange={setRole}/>)}</tbody></table></div>
+      {f.notes.slice(0, 3).map((n, i) => <p key={i} className="al-muted">{n}</p>)}
+      {f.kind === "periodic" && !f.time_col && <label className="al-link"><input type="checkbox" checked={!!choices.rowOrder[f.name]} onChange={(e) => setOrder(f.name, e.target.checked)}/><span>No dates, but rows are in time order<small>Tick only if you are sure.</small></span></label>}
+      {f.role !== "summary" && <div className="al-table-wrap"><table className="al-table al-compact"><thead><tr><th>Column</th><th>Means</th><th>Confidence</th><th>Why</th></tr></thead>
+        <tbody>{f.columns.filter((c) => c.type !== "empty").map((c) => { const key = `${f.name}::${c.name}`; const mine = choices.concepts[key];
+          return <tr key={c.name} className={c.needs_confirmation && !mine ? "al-unsure" : ""}>
+            <td><code>{c.name}</code></td>
+            <td><ConceptSelect col={c} concepts={reading.concepts} value={mine} onChange={(v) => setConcept(key, v)}/>{mine && <span className="al-chip al-chip-mine">your choice</span>}</td>
+            <td>{c.confidence != null ? `${Math.round(c.confidence * 100)}%` : "—"}{c.needs_confirmation && !mine && <span className="al-chip al-chip-warn">please check</span>}</td>
+            <td className="al-why">{c.source === "memory" ? "You chose this before. " : c.source === "ai" ? "AI helper. " : ""}{(c.reasons || []).slice(0, 2).join("; ")}</td></tr>; })}</tbody></table></div>}
     </div>)}
   </div>;
 }

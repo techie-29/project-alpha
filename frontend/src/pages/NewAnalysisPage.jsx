@@ -5,7 +5,7 @@ import ReadingReview from "../components/alpha/ReadingReview";
 import { deleteFile, listFiles, readFiles, startAnalysis, uploadFiles } from "../services/alphaApi";
 import { buildConfirmations, fileSize } from "../utils/alphaFormat";
 
-const EMPTY = { roles: {}, links: {}, timeCols: {}, rowOrder: {} };
+const EMPTY = { concepts: {}, links: {}, types: {}, rowOrder: {} };
 
 export default function NewAnalysisPage({ token }) {
   const navigate = useNavigate();
@@ -57,7 +57,7 @@ export default function NewAnalysisPage({ token }) {
     <section className="page-header">
       <span className="eyebrow">New analysis</span>
       <h1>Upload your business files</h1>
-      <p>Any CSV or Excel files: sales, costs, tickets, bookings, anything with rows. Files can be linked or completely separate. Alpha works out what each column means and shows you before it starts.</p>
+      <p>Upload any CSV or Excel files from your business: sales, orders, stock, customers, products, costs, bookings, tickets. They can be linked or separate. Alpha works out what each file and column means, shows you, and then builds the full picture.</p>
     </section>
 
     <section className="upload-panel">
