@@ -14,7 +14,7 @@ from .understand.ai_review import review_columns
 from .link.linker import find_links, apply_link_confirmations, build_views
 from .model.build import build_model
 from .model.concepts import CONCEPTS
-from .metrics.frame import build_frame
+from .metrics.frame import build_frame, relabel
 from .overview.build import build_overview, pick_frames
 from .analyses.run import run_all
 from .insights.assemble import assemble, coverage, briefing
@@ -110,9 +110,48 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
         fm = model["files"][v.name]
         frames[v.name] = build_frame(v, fm["columns"], fm["file"], tables, links, model["files"])
     progress("Building the overview", 28)
-    overview = build_overview(frames, {n: m["file"] for n, m in model["files"].items()}, links)
-    pick = pick_frames(frames, links)
-    raw, checked = run_all(pick, {v.name: v for v in views}, progress)
+    infos = {n: m["file"] for n, m in model["files"].items()}
+    views_by = {v.name: v for v in views}
+    parts, raw, checked = [], [], {"timing": {}, "parts": []}
+    for k, names in enumerate(_clusters(frames, links)):
+        sub = {n: frames[n] for n in names}
+        ov = build_overview(sub, {n: infos[n] for n in names}, links)
+        label = _part_label(sub, ov)
+        rev = next((t["value"] for t in ov["tiles"] if t["metric"] == "revenue"), None)
+        activity = [F for F in sub.values() if F.role in ("transactions", "periodic", "lines")] or [None]
+        pk0 = pick_frames(sub, links)
+        main_names = {pk0["sales"].name if pk0["sales"] else None, pk0["lines"].name if pk0["lines"] else None}
+        runs = [pk0] + [{**pk0, "sales": F, "lines": None, "stock": None} for F in activity if F is not None and F.name not in main_names and F.role != "lines"]
+        part_items = []
+        for j, pk in enumerate(runs):
+            if not (pk.get("sales") or pk.get("stock") or pk.get("lines")):
+                continue
+            items, ch = run_all(pk, views_by, lambda s, pc: progress(f"{label}: {s}", min(86, 30 + int((pc - 30) * (k + 1) / max(1, len(frames))))))
+            part_items += items
+            for kk, vv in ch.get("timing", {}).items():
+                checked["timing"][kk] = round(checked["timing"].get(kk, 0) + vv, 1)
+            if ch.get("failed"):
+                checked.setdefault("failed", []).extend(ch["failed"])
+        nouns = (pk0["sales"].nouns if pk0.get("sales") is not None else {}) or {}
+        if nouns:
+            _relabel_tree(ov, nouns)
+            for i in part_items:
+                for k in ("title", "detail", "metric_label", "suggestion"):
+                    if isinstance(i.get(k), str):
+                        i[k] = relabel(i[k], nouns)
+                if isinstance(i.get("chart"), dict):
+                    _relabel_tree(i["chart"], nouns)
+        for i in part_items:
+            i["part"] = label
+            if rev and i.get("impact") and i.get("impact_share") is None:
+                i["impact_share"] = min(1.0, abs(i["impact"]) / rev)
+        raw += part_items
+        parts.append({"name": label, "files": names, "overview": ov})
+        checked["parts"].append({"name": label, "files": names, "findings": len(part_items)})
+    overview = dict(parts[0]["overview"]) if parts else {"files": [], "tiles": [], "sections": [], "sources": {}, "currency": None, "currencies": []}
+    if len(parts) > 1:
+        overview["parts"] = [{"name": x["name"], "files": x["files"], "overview": x["overview"]} for x in parts]
+        overview["files"] = [f for x in parts for f in x["overview"]["files"]]
     progress("Ranking what matters", 88)
     asm = assemble(raw, overview["tiles"], preferences)
     warnings = list(dict.fromkeys(lwarns + [w for p in tables.values() for w in p.warnings]))
@@ -148,6 +187,49 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
     save_state(out / "state.pkl.gz", frames, model)
     progress("Done", 100)
     return report
+
+
+def _relabel_tree(o, nouns):
+    """Use the business's own words (appointments, patients, invoices...) in titles and labels."""
+    if isinstance(o, dict):
+        for k, v in o.items():
+            if k in ("label", "title", "how", "name") and isinstance(v, str) and k != "name":
+                o[k] = relabel(v, nouns)
+            elif isinstance(v, (dict, list)) and k not in ("rows", "grains", "x", "values", "points"):
+                _relabel_tree(v, nouns)
+            elif k == "grains" and isinstance(v, dict):
+                for g in v.values():
+                    for s in g.get("series", []):
+                        s["name"] = relabel(s["name"], nouns)
+    elif isinstance(o, list):
+        for x in o:
+            _relabel_tree(x, nouns)
+
+
+def _clusters(frames: dict, links: list) -> list[list[str]]:
+    """Files joined by confirmed links form one part of the business; unrelated files are analysed separately."""
+    parent = {n: n for n in frames}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for l in links:
+        if getattr(l, "use", False) and l.child in parent and l.parent in parent:
+            parent[find(l.child)] = find(l.parent)
+    groups: dict = {}
+    for n in frames:
+        groups.setdefault(find(n), []).append(n)
+    def weight(names):
+        return (any(frames[n].role in ("transactions", "periodic", "lines") for n in names), sum(len(frames[n].df) for n in names))
+    return sorted(groups.values(), key=weight, reverse=True)
+
+
+def _part_label(sub: dict, ov: dict) -> str:
+    main = ov.get("sources", {}).get("sales") or ov.get("sources", {}).get("stock") or next(iter(sub))
+    base = main.rsplit(".", 1)[0].replace("_", " ").strip()
+    return base[:1].upper() + base[1:] if len(sub) == 1 else f"{base[:1].upper() + base[1:]} (+{len(sub) - 1} linked file{'s' if len(sub) > 2 else ''})"
 
 
 def _questions(items: list[dict]) -> list[dict]:

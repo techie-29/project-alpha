@@ -15,14 +15,30 @@ def run(K, sales_frames: list, currency: str | None) -> list[dict]:
         k = k.sort_values("_t")
     last = k.groupby("product_id").tail(1).set_index("product_id")
     asof = k["_t"].max() if K.has_time else None
-    S = next((F for F in sales_frames if F is not None and F.has_time and "product_id" in F.df.columns and ("quantity" in F.df.columns or "revenue" in F.df.columns)), None)
+    stock_ids = set(k["product_id"].astype(str).unique())
+    def overlaps(F):
+        ids = set(F.df["product_id"].dropna().astype(str).unique())
+        return len(ids & stock_ids) >= 0.3 * min(len(ids), len(stock_ids)) if ids and stock_ids else False
+    S = next((F for F in sales_frames if F is not None and F.has_time and "product_id" in F.df.columns and ("quantity" in F.df.columns or "revenue" in F.df.columns) and overlaps(F)), None)
     out = []
     cost = last["unit_cost"] if "unit_cost" in last.columns else None
-    if S is None:
+    if S is None:                                   # no sales for these items in the files: report what the stock file alone shows
+        label = (K.groups.get("name_label") or [None])[0]
         z = last[last.stock_level <= 0]
         if len(z):
-            out.append(insight("out_of_stock", "stock", f"{len(z):,} items are out of stock", "Their latest stock count is zero.", polarity="bad", actionable=True,
-                               numbers={"items": int(len(z))}, source=K.name, tags=["stock"]))
+            out.append(insight("out_of_stock", "stock", f"{len(z):,} items are out of stock", "Their latest stock count is zero. (No sales file for these items was uploaded, so Alpha cannot tell how fast they sell.)",
+                               polarity="bad", actionable=True, numbers={"items": int(len(z))}, source=K.name, tags=["stock"],
+                               chart={"type": "table", "title": "Out of stock", "columns": ["Stock"], "fmts": {}, "rows": [{"key": str(i), "name": (str(r[label]) if label and label in r else None), "Stock": float(r.stock_level)} for i, r in z.head(25).iterrows()]},
+                               suggestion="Check whether these should be re-ordered."))
+        if "reorder_level" in last.columns:
+            lowr = last[(last.stock_level > 0) & (last.stock_level <= last.reorder_level)]
+            if len(lowr):
+                out.append(insight("low_cover", "stock", f"{len(lowr):,} items are at or below their reorder point", "Their latest count is at or below the reorder level in the file.",
+                                   polarity="bad", actionable=True, numbers={"items": int(len(lowr))}, source=K.name, tags=["stock"], suggestion="Place re-orders for these items."))
+        neg = last[last.stock_level < 0]
+        if len(neg):
+            out.append(insight("extreme_values", "data", f"{len(neg):,} items show a negative stock count", "A count below zero is usually a counting or entry mistake.", polarity="neutral", actionable=True,
+                               numbers={"count": int(len(neg))}, source=K.name, tags=["stock", "data"]))
         return out
     sd = S.df[S.df["_ok"].astype(bool) & S.df["_t"].notna() & S.df["product_id"].notna()]
     end = sd["_t"].max()

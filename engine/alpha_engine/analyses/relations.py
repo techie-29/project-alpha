@@ -12,10 +12,15 @@ def variables(F) -> list[tuple[str, str, str, int]]:
     """(column, label, fmt, polarity) of per-row behaviour variables (not plain money totals that just scale with size)."""
     d, V = F.df, []
     add = lambda c, lab, fmt, pol: V.append((c, lab, fmt, pol)) if c in d.columns and d[c].notna().sum() >= MIN_ROWS and d[c].nunique() >= 2 else None
+    u = F.duration_unit
     if "_late" in d.columns:
-        add("_late", "delay vs promise (days)", "days", -1)
+        add("_late", f"delay vs promise ({u})", "days", -1)
     else:
-        add("duration", "time taken", "days", -1)
+        add("duration", f"time taken ({u})", "days", -1)
+    if "discount_pct" in d.columns and "_disc_share" not in d.columns:
+        add("discount_pct", "discount share", "pct", 0)
+    for g in F.gaps:
+        add(g, g.replace("days_between_", "days between ").replace("_and_", " and ").replace("_", " "), "number", 0)
     add("age", "customer age", "number", 0)
     add("quantity", "units per order", "number", +1)
     if "revenue" in d.columns and F.role == "transactions":
@@ -35,7 +40,11 @@ def variables(F) -> list[tuple[str, str, str, int]]:
         if cid in ("points", "activity_count", "percent", "number", "money_other") and c in d.columns:
             add(c, c.replace("_", " "), "number", 0)
     add("rating", "rating", "rating", +1)                # a result: always the second variable
-    return V
+    seen, out = set(), []
+    for v in V:
+        if v[0] not in seen:
+            seen.add(v[0]); out.append(v)
+    return out
 
 
 def outcomes(F) -> list[tuple[str, str, int]]:
@@ -65,7 +74,7 @@ def _drop_size_twins(F, V):
     return keep
 
 
-SAME_FAMILY = [{"_late", "duration"}, {"revenue", "quantity"}, {"_margin_row", "_disc_share"}]
+SAME_FAMILY = [{"_late", "duration"}, {"revenue", "quantity"}, {"_margin_row", "_disc_share"}, {"revenue", "unit_price"}, {"quantity", "unit_price"}]
 DERIVED_OUTCOME = {"_on_time": {"_late", "duration"}}
 RESULTS = {"rating"}
 NOT_BEFORE_OUTCOME = {"_margin_row", "revenue", "rating"}      # computed after the outcome is known (cancelled orders earn nothing)
@@ -109,8 +118,8 @@ def run(F, currency: str | None) -> list[dict]:
             g = sub.groupby(bins).agg(xm=(x, "median"), ym=(y, "mean"), n=(y, "size"))
             lo, hi = g.iloc[0], g.iloc[-1]
             head = f"{yl[0].upper() + yl[1:]} is {'higher' if r > 0 else 'lower'} when {xl} is higher"
-            det = (f"When {xl} is lowest (around {fmt_value(lo.xm, xf, currency or '')}), {yl} averages {fmt_value(lo.ym, yf, currency or '')}; "
-                   f"when it is highest (around {fmt_value(hi.xm, xf, currency or '')}), {fmt_value(hi.ym, yf, currency or '')}. Rank correlation {r:+.2f}.")
+            det = (f"When {xl} is lowest (around {fmt_value(lo.xm, xf, F.duration_unit if xf == 'days' else currency or '')}), {yl} averages {fmt_value(lo.ym, yf, F.duration_unit if yf == 'days' else currency or '')}; "
+                   f"when it is highest (around {fmt_value(hi.xm, xf, F.duration_unit if xf == 'days' else currency or '')}), {fmt_value(hi.ym, yf, F.duration_unit if yf == 'days' else currency or '')}. Rank correlation {r:+.2f}.")
             # the outcome (y) getting worse as x rises is a problem to work on; getting better is worth keeping
             pol = 0 if not yp else (1 if r * yp > 0 else -1)
             out.append(insight("relationship", "service" if "rating" in (x, y) else "operations" if "_late" in (x, y) else "sales", head, det, p=p,
@@ -146,7 +155,7 @@ def run(F, currency: str | None) -> list[dict]:
             p = float(2 * norm.sf(abs(hi_r - lo_r) / se)) if se > 0 else 1.0
             xm = sub.groupby(bins)[x].median()
             out.append(insight("relationship", "operations", f"{ol[0].upper() + ol[1:]} {'rises' if hi_r > lo_r else 'falls'} with {xl}",
-                               f"{ol[0].upper() + ol[1:]} is {lo_r:.1%} when {xl} is lowest (around {fmt_value(xm.iloc[0], xf, currency or '')}) and {hi_r:.1%} when it is highest (around {fmt_value(xm.iloc[-1], xf, currency or '')}).",
+                               f"{ol[0].upper() + ol[1:]} is {lo_r:.1%} when {xl} is lowest (around {fmt_value(xm.iloc[0], xf, F.duration_unit if xf == 'days' else currency or '')}) and {hi_r:.1%} when it is highest (around {fmt_value(xm.iloc[-1], xf, F.duration_unit if xf == 'days' else currency or '')}).",
                                p=min(p, 1.0), polarity="bad" if (hi_r > lo_r) == (op < 0) else "good", actionable=True,
                                numbers={"low_rate": float(lo_r), "high_rate": float(hi_r), "rows": int(len(sub))},
                                chart={"type": "binned", "title": f"{ol[0].upper() + ol[1:]} by {xl} (five equal groups)", "fmt": "pct", "x_fmt": xf,

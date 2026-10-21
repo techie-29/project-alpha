@@ -15,7 +15,7 @@ def run(frames: list, currency: str | None) -> list[dict]:
         d = F.df[F.df["_ok"].astype(bool)]
         if "_cur" in d.columns and currency:
             d = d[d["_cur"] == currency]
-        keys = [k for k in ENTITY_WORD if k in d.columns] + [c for g in ("site_id", "employee_id", "supplier_id") for c in F.groups.get(g, [])]
+        keys = [k for k in ENTITY_WORD if k in d.columns] + [c for g in ("site_id", "employee_id", "supplier_id") for c in F.groups.get(g, []) if c != F.canon.get(g)]
         for k in dict.fromkeys(keys):
             if k in seen:
                 continue
@@ -41,7 +41,7 @@ def run(frames: list, currency: str | None) -> list[dict]:
                                    polarity="neutral", impact=float(s.iloc[:k20].sum()), impact_unit=currency or "", impact_share=top20, actionable=k == "customer_id",
                                    numbers={"entities": n, "top20_share": top20, "n80": n80, "top1_share": float(top1)}, chart=chart, source=F.name,
                                    look_at={"col": k, "value": None}, tags=[k, "concentration"], metric="revenue"))
-            if top1 >= 0.2 and n >= 5:
+            if top1 >= max(0.2, 2.5 / n) and n >= 5:
                 name = str(s.index[0])
                 out.append(insight("dependency", "sales", f"One of your {word} ({name}) brings {top1:.0%} of revenue",
                                    f"{name} accounts for {fmt_value(float(s.iloc[0]), 'money', currency or '')} of {fmt_value(float(tot), 'money', currency or '')}. Losing it would hurt; it is worth knowing why it buys so much.",

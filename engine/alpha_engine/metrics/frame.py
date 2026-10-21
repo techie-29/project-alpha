@@ -2,6 +2,7 @@
 looked up through confirmed links. Every metric and chart is computed from these frames, so they work for any business."""
 from __future__ import annotations
 from dataclasses import dataclass, field
+import re
 import numpy as np
 import pandas as pd
 from ..model.concepts import CONCEPTS
@@ -27,6 +28,9 @@ class Frame:
     notes: list[str] = field(default_factory=list)
     status_flags: list[tuple[str, str, str]] = field(default_factory=list)   # (status column, value, flag column)
     attributes: set = field(default_factory=set)                              # columns that describe a customer/product, not the row
+    duration_unit: str = "days"
+    nouns: dict = field(default_factory=dict)
+    gaps: list = field(default_factory=list)                                  # derived 'days between two dates' columns
 
     def has(self, *names) -> bool:
         return all(n in self.df.columns and self.df[n].notna().any() for n in names)
@@ -56,7 +60,15 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
         c = _primary({k: v for k, v in concept_cols.items() if not (v.get("attribute_of") and CONCEPTS[v["concept"]].agg == "sum")}, canon)
         if c is not None and c in src.columns:
             vals = src[c]
-            out[canon] = pd.to_numeric(vals, errors="coerce") if canon in NUMERIC_CANON else vals.astype("string").str.strip()
+            if canon in NUMERIC_CANON:
+                num = pd.to_numeric(vals, errors="coerce")
+                if num.notna().mean() < 0.5 * vals.notna().mean():
+                    from ..understand.roles import clean_numeric
+                    cn = clean_numeric(vals)
+                    num = cn if cn is not None else num
+                out[canon] = num
+            else:
+                out[canon] = vals.astype("string").str.strip()
             F.canon[canon] = c
     # keys of entities that are usually few (warehouses, staff, suppliers) are also groups to compare
     for canon in ("site_id", "employee_id", "supplier_id"):
@@ -87,18 +99,71 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
             out["_cur"] = cv["constant"]
         elif cur_col in src.columns:
             out["_cur"] = src[cur_col].astype("string").str.strip().str.upper()
+    # time unit of the time-taken column, from its header
+    dc = F.canon.get("duration") or F.canon.get("promised_duration")
+    if dc:
+        h = str(dc).lower()
+        F.duration_unit = "min" if re.search(r"min", h) else "hours" if re.search(r"hour|hrs|\bhr", h) else "days"
+    # other dates on the same row give gaps in days (booked -> appointment, order -> ship)
+    if has_time:
+        for c, v in concept_cols.items():
+            if CONCEPTS[v["concept"]].kind == "date" and c in src.columns and c != p.time_col:
+                d2 = pd.to_datetime(src[c], errors="coerce", dayfirst=bool(p.roles.get(c, {}).get("date_order", "").startswith(("day", "ambig"))))
+                gap = (out["_t"].dt.normalize() - d2.dt.normalize()).dt.days
+                if gap.notna().mean() > 0.5 and gap.abs().median() <= 1100:
+                    if gap.median() < 0:
+                        gap = -gap
+                    name = f"days_between_{c}_and_{p.time_col}".replace(" ", "_").lower()
+                    out[name] = gap.astype(float)
+                    F.extra_numbers.append((name, "number"))
+                    F.gaps.append(name)
     _lookup_parents(F, p, tables or {}, links or [], models or {})
     _derive(F)
     F.status_flags = [(c, v, fc) for c, v, fc in getattr(p, "_rate_cols", []) if fc in src.columns]
     for c, v, fc in F.status_flags:
         out[fc] = src[fc].values
     if "_cur" in out.columns:
-        money = next((m for m in ("revenue", "gross_revenue", "cost", "profit") if m in out.columns), None)
+        money = next((m for m in ("revenue", "gross_revenue", "cost", "profit", "_stock_value", "unit_cost", "unit_price") if m in out.columns), None)
         if money:
             share = out.loc[out["_ok"].astype(bool)].groupby("_cur")[money].sum().sort_values(ascending=False)
             F.currencies = [str(x) for x in share.index if pd.notna(x)]
             F.currency = F.currencies[0] if F.currencies else None
+        elif out["_cur"].notna().any():
+            F.currency = str(out["_cur"].dropna().iloc[0]); F.currencies = [F.currency]
+    F.nouns = _nouns(F, concept_cols)
     return F
+
+
+NOUN_MAP = {"appt": "appointment", "appointment": "appointment", "booking": "booking", "invoice": "invoice", "inv": "invoice", "receipt": "sale",
+            "bill": "bill", "ticket": "ticket", "txn": "transaction", "transaction": "transaction", "visit": "visit", "trip": "trip", "job": "job",
+            "patient": "patient", "client": "client", "member": "member", "guest": "guest", "subscriber": "subscriber", "student": "student", "user": "user"}
+
+
+def _nouns(F: Frame, concept_cols: dict) -> dict:
+    """What the business calls its orders and customers (appointments and patients, invoices and subscribers...)."""
+    out = {}
+    for canon, key in (("order_id", "order"), ("customer_id", "customer")):
+        c = F.canon.get(canon)
+        if not c:
+            continue
+        for tok in re.split(r"[^a-z]+", re.sub(r"([a-z])([A-Z])", r"\1 \2", str(c)).lower()):
+            if tok in NOUN_MAP:
+                out[key] = NOUN_MAP[tok]
+                break
+    return out
+
+
+def relabel(text: str, nouns: dict) -> str:
+    if not nouns or not text:
+        return text
+    o, c = nouns.get("order"), nouns.get("customer")
+    if o:
+        text = re.sub(r"\bOrders\b", o.capitalize() + "s", text); text = re.sub(r"\borders\b", o + "s", text)
+        text = re.sub(r"\bOrder\b", o.capitalize(), text); text = re.sub(r"\border\b", o, text)
+    if c:
+        text = re.sub(r"\bCustomers\b", c.capitalize() + "s", text); text = re.sub(r"\bcustomers\b", c + "s", text)
+        text = re.sub(r"\bCustomer\b", c.capitalize(), text); text = re.sub(r"\bcustomer\b", c, text)
+    return text
 
 
 def _lookup_parents(F: Frame, p, tables: dict, links: list, models: dict) -> None:

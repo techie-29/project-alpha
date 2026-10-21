@@ -18,7 +18,7 @@ def fmt_value(v, fmt: str, unit: str = "") -> str:
     if fmt == "rating":
         return f"{v:.2f}"
     if fmt == "days":
-        return f"{v:.1f} days"
+        return f"{v:.1f} {unit if unit in ('min', 'hours', 'days') else 'days'}"
     a = abs(v)
     s = f"{v / 1e6:.2f}M" if a >= 1e6 else f"{v / 1e3:.1f}K" if a >= 1e4 else f"{v:,.0f}" if a >= 100 else f"{v:,.2f}"
     return f"{unit} {s}".strip() if fmt == "money" else s

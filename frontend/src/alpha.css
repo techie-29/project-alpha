@@ -66,3 +66,4 @@
 .al-tall{max-height:640px}.al-report-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap}
 .al-columns{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}.al-plan{border-top-color:#9085e9}
 @media (max-width:820px){.al-chartgrid{grid-template-columns:1fr}.al-q,.al-a{max-width:100%}}
+.al-partlabel{margin:0 0 4px 2px;font-size:11px;text-transform:uppercase;letter-spacing:.08em}

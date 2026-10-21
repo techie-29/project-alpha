@@ -12,7 +12,7 @@ from .roles import (profile_columns, parse_dates, clean_numeric, apply_owner_con
                     MONEY, COUNT, PCT, RATING)
 
 TOTAL_ROW = re.compile(r"^\s*(grand\s+|sub\s*)?total[s]?\s*:?\s*$|^\s*(sum|average|mean)\s*:?\s*$", re.I)
-PROBLEM_VALUE = re.compile(r"cancel|return|refund|fail|void|reject|declin|chargeback|abandon", re.I)
+PROBLEM_VALUE = re.compile(r"cancel|return|refund|fail|void|reject|declin|chargeback|abandon|no.?show|missed|did not attend|^dna$|absent|churn|expired|lapsed|overdue|unpaid|dispute|bounced|undeliver|lost", re.I)
 STATUS_HEAD = re.compile(r"order[_\s]?status|^status$|transaction[_\s]?status|^state$", re.I)
 PRESENCE_HEAD = re.compile(r"return|refund|cancel", re.I)
 SUM_HEAD = re.compile(r"(sales|revenue|amount|cost|profit|qty|quantity|units|discount_amount|tax|shipping|fee|points|spend|income|expense|charge|payment|total)", re.I)
@@ -217,7 +217,9 @@ def prepare(df: pd.DataFrame, name: str = "file", confirmed: dict | None = None,
         p.notes.append("No dates in this file. It is used as extra detail for files it links to; on its own only a snapshot view is possible (no 'what changed').")
     else:
         dates = df["_t"].dropna()
-        p.kind = "periodic" if dates.nunique() >= 0.9 * len(dates) else "events"
+        day = dates.dt.normalize()
+        has_clock = bool((dates != day).mean() > 0.05)                    # times of day present: judge by calendar day
+        p.kind = "periodic" if (day.nunique() if has_clock else dates.nunique()) >= 0.9 * len(dates) else "events"
         if p.kind == "periodic":
             p.notes.append("About one row per date: each row is treated as a period total, so row counts are not a measure.")
     _status_logic(df, roles, p)

@@ -55,6 +55,13 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
             cc, nn, dd = codes[keep], num[mm][keep], den[mm][keep]
             n_tests += 1
             gn = np.bincount(cc, weights=nn, minlength=k); gd = np.bincount(cc, weights=dd, minlength=k)
+            if t.kind == "mean" and t.money:
+                # a group that fixes the value (a plan's price, a department's fee) is a price list, not a finding
+                gm = gn / np.where(gd > 0, gd, np.nan)
+                tot = ((nn - nn.mean()) ** 2).sum()
+                between = (gd * (np.nan_to_num(gm) - nn.mean()) ** 2).sum()
+                if tot > 0 and between / tot >= 0.85:
+                    continue
             TN0, TD0 = nn.sum(), dd.sum()
             v0 = gn / np.where(gd > 0, gd, np.nan)
             rest0 = (TN0 - gn) / np.where(TD0 - gd > 0, TD0 - gd, np.nan)
@@ -95,7 +102,7 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
                     rel = (a - b) / abs(b) if b else 0
                     head = f"{t.label} is {abs(rel):.0%} {'higher' if up else 'lower'} for {gname} ({colname})" if t.fmt not in ("pct", "rating", "days") else \
                            f"{t.label} is {'higher' if up else 'lower'} for {gname} ({colname})"
-                detail = f"{fmt_value(a, t.fmt, currency or '')} for {gname} against {fmt_value(b, t.fmt, currency or '')} for everything else ({rows_g:,} rows)."
+                detail = f"{fmt_value(a, t.fmt, (F.duration_unit if t.fmt == 'days' else currency or ''))} for {gname} against {fmt_value(b, t.fmt, (F.duration_unit if t.fmt == 'days' else currency or ''))} for everything else ({rows_g:,} rows)."
                 impact, unit, what = None, "", None
                 if t.kind == "rate":
                     excess = (a - b) * rows_g

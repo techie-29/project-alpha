@@ -77,9 +77,9 @@ def run(F, currency: str | None, max_cols: int = 8, max_tests: int = 40) -> list
             good = bool((t.polarity > 0) == bool(up)) if t.polarity else None
             a_, b_ = str(va), str(vb)
             head = f"{t.label} is {'especially high' if up else 'especially low'} for {a_} + {b_}"
-            det = (f"{fmt_value(cv, t.fmt, currency or '')} for {c1.replace('_', ' ')} {a_} with {c2.replace('_', ' ')} {b_} ({rows:,} rows), "
-                   f"against {fmt_value(cea, t.fmt, currency or '')} for all of {a_}, {fmt_value(ceb, t.fmt, currency or '')} for all of {b_}, and {fmt_value(overall, t.fmt, currency or '')} overall. "
-                   f"The two together would suggest about {fmt_value(cexp, t.fmt, currency or '')}, so this combination stands out on its own.")
+            det = (f"{fmt_value(cv, t.fmt, (F.duration_unit if t.fmt == 'days' else currency or ''))} for {c1.replace('_', ' ')} {a_} with {c2.replace('_', ' ')} {b_} ({rows:,} rows), "
+                   f"against {fmt_value(cea, t.fmt, (F.duration_unit if t.fmt == 'days' else currency or ''))} for all of {a_}, {fmt_value(ceb, t.fmt, (F.duration_unit if t.fmt == 'days' else currency or ''))} for all of {b_}, and {fmt_value(overall, t.fmt, (F.duration_unit if t.fmt == 'days' else currency or ''))} overall. "
+                   f"The two together would suggest about {fmt_value(cexp, t.fmt, (F.duration_unit if t.fmt == 'days' else currency or ''))}, so this combination stands out on its own.")
             mask = pd.Series(m, index=F.df.index) & (_group_series(F.df[c1]).astype("string") == a_) & (_group_series(F.df[c2]).astype("string") == b_)
             out.append(insight("combination", "operations" if t.kind == "rate" else "sales", head, det, p=p,
                                polarity="good" if good else ("bad" if good is False else "neutral"), actionable=True,

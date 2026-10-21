@@ -129,7 +129,7 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
         if cid in ("points", "activity_count"):
             return (0.5 if st["int"] > 0.95 and st["neg"] <= 0.01 else 0.1), "whole non-negative counts"
         if cid == "discount_pct":
-            ok = st["min"] >= 0 and (st["max"] <= 1 or st["max"] <= 100) and st["int"] < 0.98
+            ok = st["min"] >= 0 and (st["max"] <= 1 or st["max"] <= 100) and (st["int"] < 0.98 or st["max"] <= 1)
             return (0.6 if ok else 0.05), "a share between 0 and 1 (or 100)" if ok else None
         if cid == "percent":
             ok = (st["min"] >= 0 and st["max"] <= 100) or (st["min"] >= 0 and st["max"] <= 1)
@@ -365,7 +365,23 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
     memory, owner = memory or {}, owner or {}
     df, roles = p.df, p.roles
     usable = {c: i for c, i in roles.items() if not c.startswith("__") and c not in ("_t", "_row") and i["role"] not in ("empty", "constant", "ignore")}
-    nst = {c: num_stats(df[c]) for c, i in usable.items() if i["role"] == "measure"}
+    for c, i in roles.items():                         # a reorder point or unit cost that is the same everywhere still means something
+        if i["role"] == "constant":
+            from ..understand.roles import clean_numeric
+            num = df[c] if pd.api.types.is_numeric_dtype(df[c]) else clean_numeric(df[c])
+            if num is not None and num.notna().mean() > 0.9 and \
+                    max(name_score(c, CONCEPTS[k].synonyms)[0] for k in ("reorder_level", "unit_cost", "unit_price", "revenue", "cost", "expense", "quantity", "tax", "discount")) >= 0.8:
+                usable[c] = {**i, "role": "measure"}
+                if getattr(num, "attrs", {}).get("currency_symbol"):
+                    roles[c]["currency_symbol"] = num.attrs["currency_symbol"]
+    from ..understand.roles import clean_numeric as _cn
+    def _num(s):
+        if pd.api.types.is_numeric_dtype(s):
+            return s
+        v = _cn(s)
+        return v if v is not None else pd.to_numeric(s, errors="coerce")
+    nst = {c: num_stats(_num(df[c])) for c, i in usable.items() if i["role"] == "measure"}
+    nst = {c: (v if v is not None or not usable[c].get("unique") == 1 else {"n": 1, "int": 1.0, "dec2": 0.0, "neg": 0.0, "zero": 0.0, "min": 0.0, "max": 0.0, "med": 0.0, "nu": 1}) for c, v in nst.items()}
     cst = {c: cat_stats(df[c]) for c, i in usable.items() if i["role"] != "measure"}
     ncache: dict = {}
 
@@ -400,6 +416,8 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
                 s = vs * 0.75                              # a code column whose entity we cannot name yet
             elif con.id == "event_date" and ns < 0.3:
                 s = 0.6
+            elif con.id == "age" and ns < 0.3:
+                s = 0.1                                    # 18..80 whole numbers are only an age if the header says so
             elif ns < 0.3:                                 # value evidence alone: weaker, unless very specific
                 s = vs * 0.8 if vs >= 0.85 else (vs * 0.45 if vs >= 0.6 else 0.1)
             if con.kind == "key" and con.id != "entity_id" and not ID_HEAD.search(c) and ns < 0.99 and not (vs >= 0.6 and ns >= 0.3):
@@ -416,6 +434,11 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
             b = hints.get(c, {}).get(con.id)
             if b:
                 s += b[0]; reasons.append(b[1])
+            if info.get("percent_text"):                   # written as '10%': a share, not an amount
+                if con.id in ("discount_pct", "percent", "margin_pct"):
+                    s += 0.35; reasons.append("written as percentages")
+                elif con.money:
+                    s *= 0.3
             scored.append((min(s, 1.0), con.id, reasons))
         if not scored:
             continue
@@ -444,11 +467,18 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
         if ent_concept and cols[role["key"]]["concept"] != ent_concept:
             cols[role["key"]].update(concept=ent_concept, label=CONCEPTS[ent_concept].label, confidence=max(cols[role["key"]]["confidence"], 0.75),
                                      reasons=["the unique key of a master list of " + role["entity"] + "s"])
+    # in a sales log with no product code, the item name is the product (e.g. 'Item Name' in a till export)
+    if role["role"] in ("transactions", "lines") and not any(v["concept"] == "product_id" for v in cols.values()):
+        for c, v in cols.items():
+            if v["concept"] == "name_label" and re.search(r"(item|product|menu|dish|service|article|sku)", c, re.I) and 2 <= df[c].nunique() <= 5000:
+                v.update(concept="product_id", label=CONCEPTS["product_id"].label, confidence=max(v["confidence"], 0.7),
+                         reasons=["the item sold on each row (there is no separate product code)"] + v["reasons"][:2])
+                break
     # unique id in a transaction log is the order / transaction
     if role["role"] == "transactions":
         for c, v in cols.items():
             if CONCEPTS[v["concept"]].kind == "key" and df[c].nunique() >= 0.9 * df[c].notna().sum() and v["concept"] not in ("order_id",) and v["confidence"] < 0.8:
-                v.update(concept="order_id", label=CONCEPTS["order_id"].label, reasons=["unique per row in a transaction log"] + v["reasons"][:2])
+                v.update(concept="order_id", label=CONCEPTS["order_id"].label, confidence=max(v["confidence"], 0.7), reasons=["unique per row in a transaction log"] + v["reasons"][:2])
     # a number that never changes within a customer (or product) describes that customer, e.g. lifetime value or age.
     # It must be averaged over customers, never added up across their orders.
     if role["role"] in ("transactions", "lines"):
@@ -481,6 +511,15 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
                        "alternatives": [(prev["concept"], prev["confidence"])] + prev.get("alternatives", [])[:2], "source": "memory"}
         elif cid in CONCEPTS and c in cols:
             cols[c]["source"] = "memory"; cols[c]["confidence"] = max(cols[c]["confidence"], 0.95)
+    if not any(v["concept"] == "currency" for v in cols.values()):
+        sym = {"$": "USD", "€": "EUR", "£": "GBP", "₹": "INR", "¥": "JPY"}
+        found = [sym[i["currency_symbol"]] for c, i in roles.items() if i.get("currency_symbol") in sym and cols.get(c, {}).get("concept") in
+                 ("revenue", "gross_revenue", "cost", "expense", "profit", "unit_price", "unit_cost", "discount", "tax", "money_other")]
+        if not found:
+            found = [t.upper() for c, v in cols.items() if CONCEPTS[v["concept"]].money for t in tokens(c) if t.upper() in CURRENCIES and t.upper() not in ("ALL",)]
+        if found:
+            code = max(set(found), key=found.count)
+            cols["__currency__"] = {"concept": "currency", "label": "Currency", "confidence": 0.8, "reasons": [f"amounts are written in {code}"], "alternatives": [], "source": "auto", "constant": code}
     for c, cid in (owner or {}).items():
         if c in usable and cid in CONCEPTS:
             prev = cols.get(c, {})

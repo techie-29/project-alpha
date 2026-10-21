@@ -42,7 +42,7 @@ def run(F, currency: str | None) -> list[dict]:
         yr = d[d["_t"] >= end - pd.Timedelta(days=365)]
         at_risk = float(yr[yr.customer_id.isin(quiet.index)]["revenue"].sum()) if "revenue" in d.columns else None
         top = quiet.sort_values("revenue", ascending=False).head(25)
-        out.append(insight("quiet_customers", "customers", f"{len(quiet):,} regular customers have stopped buying (about {expected:,.0f} would by chance)",
+        out.append(insight("quiet_customers", "customers", f"{len(quiet):,} regular customers have stopped coming back (about {expected:,.0f} would by chance)",
                            f"Each bought on 3+ different days, but has now been silent so long that, at their own usual pace, it would happen by chance less than 1 time in 100."
                            + (f" In the last 12 months they spent {fmt_value(at_risk, 'money', currency or '')}." if at_risk else ""),
                            p=p, polarity="bad", impact=at_risk, impact_unit=currency or "", actionable=True, look_at={"col": "customer_id", "value": None},

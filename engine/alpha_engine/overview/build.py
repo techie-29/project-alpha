@@ -77,7 +77,7 @@ def tile(F: Frame, m: Metric, cur: str | None) -> dict | None:
     v = value(F, m, cur)
     if v is None:
         return None
-    t = {"metric": m.id, "label": m.label, "value": v, "fmt": m.fmt, "unit": cur if m.money else "", "polarity": m.polarity, "how": m.how,
+    t = {"metric": m.id, "label": m.label, "value": v, "fmt": m.fmt, "unit": cur if m.money else (F.duration_unit if m.fmt == "days" else ""), "polarity": m.polarity, "how": m.how,
          "source": F.name, "area": m.area}
     if F.has_time and m.spec[0] not in ("latest_count_if",):
         labels, vals = series(F, m, "month", cur)
@@ -135,7 +135,7 @@ def time_chart(F: Frame, m: Metric, cur: str | None, title: str | None = None, c
         return None
     default = "month" if "month" in grains and span_days > 120 else ("week" if "week" in grains and span_days > 30 else next(iter(grains)))
     return {"id": cid or f"{F.name}:{m.id}:time", "type": "line", "title": title or f"{m.label} over time", "metric": m.id, "fmt": m.fmt,
-            "unit": cur if m.money else "", "grains": grains, "default_grain": default, "source": F.name, "how": m.how}
+            "unit": cur if m.money else (F.duration_unit if m.fmt == "days" else ""), "grains": grains, "default_grain": default, "source": F.name, "how": m.how}
 
 
 def bar_chart(F: Frame, m: Metric, col: str, cur: str | None, top: int = 12) -> dict | None:
@@ -143,7 +143,7 @@ def bar_chart(F: Frame, m: Metric, col: str, cur: str | None, top: int = 12) -> 
     if len(rows) < 2:
         return None
     return {"id": f"{F.name}:{m.id}:by:{col}", "type": "bar", "title": f"{m.label} by {col.replace('_', ' ')}", "metric": m.id, "fmt": m.fmt,
-            "unit": cur if m.money else "", "group_col": col, "rows": rows, "source": F.name, "how": m.how}
+            "unit": cur if m.money else (F.duration_unit if m.fmt == "days" else ""), "group_col": col, "rows": rows, "source": F.name, "how": m.how}
 
 
 def stacked_share(F: Frame, m: Metric, col: str, cur: str | None, top: int = 6) -> dict | None:
@@ -263,7 +263,7 @@ def customers_section(F: Frame, cur: str | None) -> list[dict]:
 def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> dict:
     pick = pick_frames(frames, links)
     S, L, C, P, K = pick["sales"], pick["lines"], pick["customers"], pick["products"], pick["stock"]
-    cur = S.currency if S else (L.currency if L else None)
+    cur = next((F.currency for F in (S, L, K, P, C) if F is not None and F.currency), None)
     tiles, sections = [], {}
 
     def add(area, chart):
@@ -326,7 +326,7 @@ def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> d
         for c in S.groups.get("status", [])[:3]:
             add("operations", bar_chart(S, Metric("rows_all", "Rows", "operations", (), ("count",), "count"), c, None))
         if "duration" in S.df:
-            add("operations", histogram(S, "duration", "How long it took (time-taken column)", "days"))
+            add("operations", histogram(S, "duration", f"How long it took ({S.duration_unit})", "days"))
         if "avg_rating" in ms:
             add("service", time_chart(S, ms["avg_rating"], None))
             add("service", histogram(S, "rating", "Ratings given"))

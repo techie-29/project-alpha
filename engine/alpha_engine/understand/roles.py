@@ -61,6 +61,13 @@ def clean_numeric(s: pd.Series) -> pd.Series | None:
         out = pd.Series(np.nan, index=s.index)
         mask = s.notna()
         out[mask] = conv(s[mask])
+        tt = t.str.strip()
+        if tt.str.endswith("%").mean() >= 0.9:
+            out = out / 100.0                                   # '10%' is a share of 0.10
+            out.attrs["percent_text"] = True
+        sym = tt.str.extract(r"([$€£₹¥])", expand=False).dropna()
+        if len(sym) >= 0.5 * len(tt):
+            out.attrs["currency_symbol"] = sym.mode().iloc[0]
         return out
     return None
 
@@ -160,6 +167,11 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
             return info
 
     num = s if (pd.api.types.is_numeric_dtype(s) and s.dtype != bool) else clean_numeric(s)
+    if num is not None and getattr(num, "attrs", None):
+        if num.attrs.get("currency_symbol"):
+            info["currency_symbol"] = num.attrs["currency_symbol"]
+        if num.attrs.get("percent_text"):
+            info["percent_text"] = True
     is_bool = _bool_like(s)
 
     # --- numeric-encoded dates (Excel serials / unix timestamps), only with a date-ish header ---

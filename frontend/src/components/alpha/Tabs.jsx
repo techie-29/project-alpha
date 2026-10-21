@@ -46,7 +46,18 @@ function QuestionRow({ q, saved, onAnswer }) {
 
 /* ------------------------------ Overview ------------------------------ */
 export function OverviewTab({ report }) {
-  const ov = report.overview;
+  const parts = report.overview.parts || null;
+  const [pi, setPi] = useState(0);
+  if (!parts) return <OverviewPart ov={report.overview}/>;
+  return <div className="al-stack">
+    <div className="al-panel"><h3 className="al-h3">Your files cover {parts.length} separate parts of the business</h3>
+      <p className="al-muted">They do not link to each other, so each part is summarised on its own and their numbers are never mixed.</p>
+      <div className="al-sectabs" role="tablist">{parts.map((p, i) => <button key={p.name} type="button" role="tab" aria-selected={i === pi} className={i === pi ? "is-on" : ""} onClick={() => setPi(i)}>{p.name}</button>)}</div></div>
+    <OverviewPart key={pi} ov={parts[pi].overview}/>
+  </div>;
+}
+
+function OverviewPart({ ov }) {
   const [area, setArea] = useState(ov.sections[0]?.area);
   const sec = ov.sections.find((s) => s.area === area);
   return <div className="al-stack">
@@ -83,6 +94,7 @@ export function InsightsTab({ report, focusId, feedback, onFeedback }) {
     </div>
     {report.insights.quiet && <div className="al-panel"><h3 className="al-h3">Nothing unusual changed</h3><p>Everything Alpha tested stayed within its normal range once chance was allowed for. The calculated facts below still describe your business.</p></div>}
     {shown.map((i) => <div key={i.id}>
+      {report.overview.parts && <p className="al-muted al-partlabel">{i.part}</p>}
       <InsightCard item={i} feedback={fb.get(i.id)} onFeedback={onFeedback} open={i.id === focusId}/>
       {stories.get(i.id)?.size > 1 && <p className="al-muted al-related">Related: {stories.get(i.id).members.filter((m) => m !== i.id).map((m) => items.find((x) => x.id === m)?.title).filter(Boolean).join(" · ")}</p>}
     </div>)}

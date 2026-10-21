@@ -40,6 +40,8 @@ def targets(F: Frame) -> list[Target]:
         T.append(Target("margin", "Profit margin", "profit", "revenue", "ok", "pct", +1, True, "ratio"))
     if has("discount", "gross_revenue"):
         T.append(Target("discount_rate", "Discount rate", "discount", "gross_revenue", "ok", "pct", -1, True, "ratio"))
+    elif has("discount_pct"):
+        T.append(Target("discount_share", "Average discount", "discount_pct", None, "ok", "pct", -1))
     kept: list[np.ndarray] = []
     flags = sorted(F.status_flags, key=lambda x: (0 if x[0] in F.groups.get("status", [])[:1] else 1, x[1] == "yes"))
     for col, val, fc in flags:

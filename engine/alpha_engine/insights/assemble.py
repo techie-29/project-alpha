@@ -147,6 +147,8 @@ def coverage(frames: dict, models: dict, insights: list[dict], overview: dict) -
     for name, fm in models.items():
         F = frames.get(name)
         for col, v in fm.get("columns", {}).items():
+            if col.startswith("__"):
+                continue
             con = CONCEPTS[v["concept"]]
             canon = next((k for k, c in (F.canon.items() if F else []) if c == col), None)
             uses = []

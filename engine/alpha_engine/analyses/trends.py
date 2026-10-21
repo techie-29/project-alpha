@@ -63,7 +63,8 @@ def run(F, currency: str | None) -> list[dict]:
         up = b > a
         good = bool((m.polarity > 0) == bool(up)) if m.polarity else None
         rel = (b - a) / abs(a) if a and m.fmt != "pct" else None
-        head = f"{m.label} has been {'rising' if up else 'falling'} steadily" + (f" ({rel:+.0%} over the period)" if rel is not None else "")
+        plural = m.label.endswith("s") and not m.label.endswith(("ss", "rate", "value"))
+        head = f"{m.label} {'have' if plural else 'has'} been {'rising' if up else 'falling'} steadily" + (f" ({rel:+.0%} over the period)" if rel is not None else "")
         out.append(insight("trend", m.area, head, f"Average of the first {n6} months against the last {n6}: {chg}.", p=p,
                            polarity="good" if good else ("bad" if good is False else "neutral"), metric=mid, metric_label=m.label,
                            numbers={"start": a, "end": b, "rho": r, "fmt": m.fmt, "months": int(np.isfinite(y).sum())},
