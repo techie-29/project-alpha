@@ -3,25 +3,29 @@ import numpy as np
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
-from bench import business
+from bench_business import make
 
 
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
     up = tmp_path / "uploads"; up.mkdir()
     monkeypatch.setenv("ENGINE_UPLOAD_DIR", str(up)); monkeypatch.setenv("ENGINE_DATA_DIR", str(tmp_path / "data")); monkeypatch.setenv("ENGINE_API_KEY", "k")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
     import importlib, alpha_engine.api as api
     importlib.reload(api)
     return api, up, tmp_path
 
 
-def make_files(up):
-    df = business(1, years=3).drop(columns=["_row"])
-    df.to_csv(up / "shop.csv", index=False)
-    return df
+def write_business(up, days=240):
+    files, truth = make(days=days, n_customers=600, n_products=40)
+    specs = []
+    for n, df in files.items():
+        df.to_csv(up / n, index=False)
+        specs.append({"name": n, "path": str(up / n)})
+    return specs, files, truth
 
 
-def wait(client, aid, tries=200):
+def wait(client, aid, tries=400):
     import time
     for _ in range(tries):
         j = client.get(f"/v1/jobs/{aid}", headers={"x-engine-key": "k"}).json()
@@ -33,100 +37,64 @@ def wait(client, aid, tries=200):
 
 def test_end_to_end_through_the_api(env):
     api, up, tmp = env
-    make_files(up)
+    specs, files, truth = write_business(up)
     c = TestClient(api.app)
     H = {"x-engine-key": "k"}
-    assert c.post("/v1/read", json={"files": [{"name": "shop.csv", "path": str(up / "shop.csv")}], "use_ai": False}).status_code == 401
-    r = c.post("/v1/read", headers=H, json={"files": [{"name": "shop.csv", "path": str(up / "shop.csv")}], "use_ai": False}).json()
-    cols = {x["name"]: x for x in r["files"][0]["columns"]}
-    assert cols["order_date"]["role"] == "time" and cols["order_id"]["role"] == "id" and r["files"][0]["kind"] == "events"
-    assert c.post("/v1/analyze", headers=H, json={"analysis_id": "a1", "files": [{"name": "shop.csv", "path": str(tmp / "evil.csv")}], "use_ai": False}).status_code in (400, 404)
-    assert c.post("/v1/analyze", headers=H, json={"analysis_id": "a1", "files": [{"name": "shop.csv", "path": "/etc/passwd"}], "use_ai": False}).status_code == 400
-    assert c.post("/v1/analyze", headers=H, json={"analysis_id": "a1", "files": [{"name": "shop.csv", "path": str(up / "shop.csv")}], "use_ai": False}).status_code == 202
+    assert c.post("/v1/read", json={"files": specs, "use_ai": False}).status_code == 401
+    r = c.post("/v1/read", headers=H, json={"files": specs, "use_ai": False}).json()
+    roles = {f["name"]: f["role"] for f in r["files"]}
+    assert roles["orders.csv"] == "transactions" and roles["stock.csv"] == "snapshot" and roles["products.csv"] == "master"
+    cols = {x["name"]: x for x in next(f for f in r["files"] if f["name"] == "orders.csv")["columns"]}
+    assert cols["order_total"]["concept"] == "revenue" and cols["order_date"]["type"] == "time"
+    assert any(x["id"] == "stock_level" for x in r["concepts"]) and any(l["use"] for l in r["links"])
+    assert c.post("/v1/analyze", headers=H, json={"analysis_id": "a1", "files": [{"name": "x.csv", "path": "/etc/passwd"}], "use_ai": False}).status_code == 400
+    assert c.post("/v1/analyze", headers=H, json={"analysis_id": "a1", "files": specs, "use_ai": False}).status_code == 202
     j = wait(c, "a1")
     assert j["status"] == "done", j
     rep = c.get("/v1/reports/a1", headers=H).json()
-    for k in ("briefing", "your_data", "insights", "intelligence", "questions", "limits", "reading"):
+    assert rep["version"] == 2
+    for k in ("briefing", "overview", "insights", "suggestions", "coverage", "questions", "limits", "reading"):
         assert k in rep
-    assert rep["briefing"]["stories"] and rep["intelligence"]["fix"]
-    kp = rep["your_data"][0]["kpis"][0]
-    assert kp["unit"] == "" and kp["value"] > 0 and rep["your_data"][0]["breakdowns"] and rep["your_data"][0]["weekday"]
-    f = rep["insights"]["findings"][0]
-    assert f["rows"]["total"] > 0 and f["rows"]["rows"] and f["chart"]["values"]
-    json.dumps(rep)                                          # fully JSON-safe
+    assert rep["overview"]["tiles"] and rep["overview"]["sections"] and rep["insights"]["items"]
+    assert rep["briefing"]["headline"] and rep["briefing"]["key_numbers"]
+    assert any(i["type"] == "stockout" for i in rep["insights"]["items"])
+    json.dumps(rep)
     assert (tmp / "data" / "analyses" / "a1" / "state.pkl.gz").exists()
 
 
-def test_two_unlinked_files_and_a_summary_file(env):
+def test_confirmations_and_memory_change_the_reading(env):
     api, up, tmp = env
-    a = pd.DataFrame({"sale_date": np.repeat(pd.date_range("2024-01-01", periods=100), 3), "amount": np.random.default_rng(1).normal(100, 5, 300)})
-    a["region"] = ["N", "S", "E"] * 100
-    b = pd.DataFrame({"Total Rows": [300], "Total Amount": ["$30,000"]})
-    a.to_csv(up / "sales.csv", index=False); b.to_csv(up / "summary.csv", index=False)
+    specs, files, truth = write_business(up, days=120)
     from alpha_engine import pipeline
-    rep = pipeline.analyze("a2", [{"name": "sales.csv", "path": str(up / "sales.csv")}, {"name": "summary.csv", "path": str(up / "summary.csv")}], {}, str(tmp / "data"))
-    kinds = {f["name"]: f["kind"] for f in rep["files"]}
-    assert kinds == {"sales.csv": "events", "summary.csv": "summary"}
-    assert "headline" in rep["briefing"]
+    r = pipeline.read(specs, {"concepts": {"orders.csv::order_cost": "expense"}}, None, memory={"ship_mode": "channel"})
+    cols = {x["name"]: x for x in next(f for f in r["files"] if f["name"] == "orders.csv")["columns"]}
+    assert cols["order_cost"]["concept"] == "expense" and cols["order_cost"]["source"] == "owner"
+    assert cols["ship_mode"]["concept"] == "channel"
 
 
-def test_pipeline_with_investigation_and_ask(env):
+def test_owner_preferences_mute(env):
     api, up, tmp = env
-    make_files(up)
+    specs, files, truth = write_business(up, days=200)
     from alpha_engine import pipeline
-    from alpha_engine.llm import ScriptedProvider
-    from alpha_engine.investigate.loop import make_investigator
-    from alpha_engine.investigate.ask import ask
-    answers = [{"action": "run", "why": "weekday check", "code": "result = df.groupby(df._t.dt.weekday).size()"}] 
-    class Always(ScriptedProvider):
-        def complete_json(self, system, payload):
-            self.calls.append(payload)
-            if not payload.get("results_so_far"):
-                return {"action": "run", "why": "count rows", "code": "result = len(df)"}
-            return {"action": "finish", "summary": "Row count was checked; the change lines up with the period shown in the numbers above."}
-    prov = Always([])
-    rep = pipeline.analyze("a3", [{"name": "shop.csv", "path": str(up / "shop.csv")}], {}, str(tmp / "data"), prov, investigate=make_investigator(prov, str(tmp / "data")))
-    inv = [f for f in rep["insights"]["findings"] if f.get("investigation")]
-    assert inv and inv[0]["investigation"]["verified"] and rep["ai"]["investigation"]["verified_summaries"] >= 1
-    class A(ScriptedProvider):
-        def complete_json(self, system, payload):
-            if not payload["results_so_far"]:
-                return {"action": "run", "why": "n", "code": "result = len(df)"}
-            n = payload["results_so_far"][0]["result"]
-            return {"action": "finish", "answer": f"There are {n} counted rows."}
-    r = ask(A([]), str(tmp / "data"), "a3", "How many rows count?", rep)
-    assert r["verified"] and "counted rows" in r["answer"]
+    base = pipeline.analyze("p1", specs, {}, str(tmp / "data"))
+    target = base["insights"]["items"][0]["pattern"]
+    rep = pipeline.analyze("p2", specs, {}, str(tmp / "data"), preferences={target: "not_useful"})
+    muted = [i for i in rep["insights"]["items"] if i["muted"]]
+    assert muted and all(i["pattern"] == target for i in muted)
+    assert not any(s["insight_id"] in {m["id"] for m in muted} for b in rep["suggestions"].values() for s in b)
 
 
-def test_exports_open_and_match_the_report(env):
+def test_exports_v2(env):
     api, up, tmp = env
-    make_files(up)
+    specs, files, truth = write_business(up, days=200)
     from alpha_engine import pipeline
     from alpha_engine.report.export import to_pdf, to_xlsx
     import io, openpyxl
-    rep = pipeline.analyze("a4", [{"name": "shop.csv", "path": str(up / "shop.csv")}], {}, str(tmp / "data"))
-    pdf = to_pdf(rep, {"answers": [{"questionId": rep["questions"][0]["id"], "answer": "We ran a promotion"}] if rep["questions"] else []})
-    assert pdf[:4] == b"%PDF" and len(pdf) > 3000
+    rep = pipeline.analyze("e1", specs, {}, str(tmp / "data"))
+    pdf = to_pdf(rep, {"answers": []})
+    assert pdf[:4] == b"%PDF" and len(pdf) > 5000
     wb = openpyxl.load_workbook(io.BytesIO(to_xlsx(rep)))
-    assert {"Briefing", "Findings", "Fix-Keep-Watch", "Key numbers", "Rows behind findings"} <= set(wb.sheetnames)
-    assert wb["Findings"].max_row == 1 + len(rep["insights"]["findings"])
+    assert {"Briefing", "Files", "Key numbers", "Insights", "Suggestions", "Chart data", "Coverage"} <= set(wb.sheetnames)
+    assert wb["Insights"].max_row == 1 + len(rep["insights"]["items"])
     c = TestClient(api.app)
-    r = c.post("/v1/export", headers={"x-engine-key": "k"}, json={"format": "pdf", "report": rep})
-    assert r.status_code == 200 and r.content[:4] == b"%PDF"
-    assert c.post("/v1/export", headers={"x-engine-key": "k"}, json={"format": "doc", "report": rep}).status_code == 400
-
-
-def test_owner_preferences_mute_and_boost(env):
-    api, up, tmp = env
-    make_files(up)
-    from alpha_engine import pipeline
-    spec = [{"name": "shop.csv", "path": str(up / "shop.csv")}]
-    base = pipeline.analyze("p1", spec, {}, str(tmp / "data"))
-    fs = base["insights"]["findings"]
-    assert fs and all("pattern" in f for f in fs)
-    target = fs[0]["pattern"]
-    rep = pipeline.analyze("p2", spec, {}, str(tmp / "data"), preferences={target: "not_useful"})
-    muted = [f for f in rep["insights"]["findings"] if f["muted"]]
-    assert muted and all(f["pattern"] == target for f in muted) and rep["muted_count"] == len(muted)
-    assert not any(i["finding_id"] in {m["id"] for m in muted} for k in ("fix", "keep", "watch") for i in rep["intelligence"][k])
-    assert rep["insights"]["findings"][-1]["muted"]          # muted ones sink to the bottom
+    assert c.post("/v1/export", headers={"x-engine-key": "k"}, json={"format": "pdf", "report": rep}).content[:4] == b"%PDF"

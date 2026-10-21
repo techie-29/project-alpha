@@ -416,9 +416,6 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
             b = hints.get(c, {}).get(con.id)
             if b:
                 s += b[0]; reasons.append(b[1])
-            mk = "_".join(tokens(c))
-            if memory.get(mk) == con.id:
-                s += 0.5; reasons.append("you confirmed this for a column with the same name before")
             scored.append((min(s, 1.0), con.id, reasons))
         if not scored:
             continue
@@ -452,11 +449,38 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
         for c, v in cols.items():
             if CONCEPTS[v["concept"]].kind == "key" and df[c].nunique() >= 0.9 * df[c].notna().sum() and v["concept"] not in ("order_id",) and v["confidence"] < 0.8:
                 v.update(concept="order_id", label=CONCEPTS["order_id"].label, reasons=["unique per row in a transaction log"] + v["reasons"][:2])
+    # a number that never changes within a customer (or product) describes that customer, e.g. lifetime value or age.
+    # It must be averaged over customers, never added up across their orders.
+    if role["role"] in ("transactions", "lines"):
+        for key_concept, ent in (("customer_id", "customer"), ("product_id", "product")):
+            kc = next((c for c, v in cols.items() if v["concept"] == key_concept), None)
+            if not kc:
+                continue
+            g = df[[kc] + [c for c in cols if c in nst and nst[c]]].dropna(subset=[kc])
+            multi = g[kc].map(g[kc].value_counts()) >= 2
+            g = g[multi]
+            if g[kc].nunique() < 20:
+                continue
+            nun = g.groupby(kc).nunique()
+            for c in nun.columns:
+                v = cols[c]
+                if (nun[c] <= 1).mean() >= 0.95 and v["concept"] not in ("unit_price", "unit_cost"):
+                    v["attribute_of"] = ent
+                    if CONCEPTS[v["concept"]].agg == "sum":
+                        v["reasons"] = [f"same value on every row of the same {ent}: a {ent} detail, averaged rather than added up"] + v["reasons"][:2]
     for c, i in roles.items():                     # a constant currency column still says which currency the money is in
         if i["role"] == "constant" and c not in cols:
             v = df[c].dropna().astype(str).str.strip().str.upper()
             if len(v) and v.iloc[0] in CURRENCIES:
                 cols[c] = {"concept": "currency", "label": "Currency", "confidence": 0.95, "reasons": [f"every row is in {v.iloc[0]}"], "alternatives": [], "source": "auto", "constant": v.iloc[0]}
+    for c in usable:                                   # what the owner chose before for a column with the same name
+        cid = memory.get("_".join(tokens(c)))
+        if cid in CONCEPTS and c in cols and cols[c]["concept"] != cid:
+            prev = cols[c]
+            cols[c] = {"concept": cid, "label": CONCEPTS[cid].label, "confidence": 0.95, "reasons": ["you chose this for a column with the same name before"],
+                       "alternatives": [(prev["concept"], prev["confidence"])] + prev.get("alternatives", [])[:2], "source": "memory"}
+        elif cid in CONCEPTS and c in cols:
+            cols[c]["source"] = "memory"; cols[c]["confidence"] = max(cols[c]["confidence"], 0.95)
     for c, cid in (owner or {}).items():
         if c in usable and cid in CONCEPTS:
             prev = cols.get(c, {})

@@ -2,7 +2,7 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from .common import insight, perm_group_test, apply_bh, codes_of, fmt_value, rows_sample, MIN_GROUP_ROWS
+from .common import insight, perm_group_test, apply_bh, codes_of, fmt_value, rows_sample, MIN_GROUP_ROWS, ratio_z, leaks
 from .targets import targets, group_columns
 
 
@@ -18,7 +18,7 @@ def material(t, a, b) -> bool:
     return abs(a - b) / max(abs(b), 1e-9) >= 0.12
 
 
-def _group_series(s: pd.Series) -> pd.Series:
+def _group_series(s: pd.Series, leak: bool = False) -> pd.Series:
     """Missing values become their own group ('(none)') when they are a real share of rows, e.g. orders with no campaign."""
     miss = s.isna().mean()
     if 0.05 <= miss <= 0.95:
@@ -41,6 +41,8 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
                 break
             if t.kind == "rate" and (col == flag_src.get(t.num) or col in status_cols):
                 continue                                   # 'cancel rate by status' says nothing new
+            if t.kind == "rate" and leaks(num[m], F.df[col][m]):
+                continue                                   # the column only exists for some outcomes
             s = _group_series(F.df[col])
             mm = m & s.notna().to_numpy()
             codes, uniq = codes_of(s[mm])
@@ -52,8 +54,18 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
             keep = big[codes]
             cc, nn, dd = codes[keep], num[mm][keep], den[mm][keep]
             n_tests += 1
-            obs, p = perm_group_test(nn, dd, cc, k)
             gn = np.bincount(cc, weights=nn, minlength=k); gd = np.bincount(cc, weights=dd, minlength=k)
+            TN0, TD0 = nn.sum(), dd.sum()
+            v0 = gn / np.where(gd > 0, gd, np.nan)
+            rest0 = (TN0 - gn) / np.where(TD0 - gd > 0, TD0 - gd, np.nan)
+            med0 = np.nanmedian(v0[big]) if big.any() else np.nan
+            promising = [j for j in np.nonzero(big)[0] if material(t, v0[j], rest0[j]) and (big.sum() == 2 or material(t, v0[j], med0))]
+            if not promising:
+                continue
+            _, pz = ratio_z(nn, dd, cc, k)
+            if min(pz[j] for j in promising) > 0.01:
+                continue                                   # nothing close to significant: skip the slow shuffle test
+            obs, p = perm_group_test(nn, dd, cc, k, B1=199, B2=999)
             TN, TD = nn.sum(), dd.sum()
             vals = gn / np.where(gd > 0, gd, np.nan)
             bigs = sorted(np.nonzero(big)[0], key=lambda j: cnt[j])          # smaller groups first (for the two-group case)
@@ -71,7 +83,7 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
                     continue                                   # two groups: one finding says it all
                 reported.append(g)
                 up = a > b
-                good = (t.polarity > 0) == up if t.polarity else None
+                good = bool((t.polarity > 0) == bool(up)) if t.polarity else None
                 gname = str(uniq[g])
                 colname = col.replace("_", " ")
                 rows_g = int(cnt[g])

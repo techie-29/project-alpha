@@ -41,6 +41,6 @@ def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tupl
     step("unusual values", lambda: outliers.run([L, S], cur), 66)
     step("hidden combinations", lambda: explore.run(S, cur), 72)
     sv = views_by_name.get(S.name) if S is not None else None
-    step("changes over time", lambda: changes.run(sv), 85)
+    step("changes over time", lambda: changes.run(sv, S), 85)
     checked["timing"] = timing
     return out, checked

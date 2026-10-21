@@ -61,7 +61,7 @@ def run(F, currency: str | None) -> list[dict]:
         if not material:
             continue
         up = b > a
-        good = (m.polarity > 0) == up if m.polarity else None
+        good = bool((m.polarity > 0) == bool(up)) if m.polarity else None
         rel = (b - a) / abs(a) if a and m.fmt != "pct" else None
         head = f"{m.label} has been {'rising' if up else 'falling'} steadily" + (f" ({rel:+.0%} over the period)" if rel is not None else "")
         out.append(insight("trend", m.area, head, f"Average of the first {n6} months against the last {n6}: {chg}.", p=p,

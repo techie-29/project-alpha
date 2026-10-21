@@ -2,7 +2,8 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from .common import insight, perm_corr, apply_bh, fmt_value, perm_group_test
+from .common import insight, apply_bh, fmt_value, leaks
+from scipy.stats import spearmanr, norm
 
 MIN_ROWS = 200
 
@@ -36,28 +37,51 @@ def variables(F) -> list[tuple[str, str, str, int]]:
 
 
 def outcomes(F) -> list[tuple[str, str, int]]:
-    out = [(fc, f"{v} rate" if v != "yes" else f"{c.replace('_', ' ')} filled", -1) for c, v, fc in F.status_flags if fc in F.df.columns]
+    from .targets import targets
+    out = [(t.num, t.label[0].lower() + t.label[1:], t.polarity) for t in targets(F) if t.kind == "rate" and t.num.startswith("__rate__")]
     if "_on_time" in F.df.columns:
         out.append(("_on_time", "on-time rate", +1))
     return out
 
 
+def _drop_size_twins(F, V):
+    """Keep one 'size of the order' variable: points, line counts etc. that just follow order value say nothing new."""
+    d = F.df
+    size = next((c for c in ("revenue", "quantity") if any(v[0] == c for v in V)), None)
+    if size is None:
+        return V
+    keep = []
+    for v in V:
+        if v[0] not in (size, "rating", "_late", "duration", "age", "_disc_share", "_margin_row", "discount_pct", "unit_price"):
+            sub = d.loc[d["_ok"].astype(bool), [size, v[0]]].dropna()
+            sub = sub[(sub[size] != 0) & (sub[v[0]] != 0)]
+            if len(sub) > 50:
+                r, _ = spearmanr(sub[size].to_numpy()[:50000], sub[v[0]].to_numpy()[:50000])
+                if abs(r) >= 0.7:
+                    continue
+        keep.append(v)
+    return keep
+
+
 SAME_FAMILY = [{"_late", "duration"}, {"revenue", "quantity"}, {"_margin_row", "_disc_share"}]
 DERIVED_OUTCOME = {"_on_time": {"_late", "duration"}}
 RESULTS = {"rating"}
+NOT_BEFORE_OUTCOME = {"_margin_row", "revenue", "rating"}      # computed after the outcome is known (cancelled orders earn nothing)
 
 
 def run(F, currency: str | None) -> list[dict]:
     if F is None or F.role not in ("transactions", "lines"):
         return []
     d = F.df
-    V = variables(F)
+    V = _drop_size_twins(F, variables(F))
     out = []
     base = d["_cur"] == currency if ("_cur" in d.columns and currency) else pd.Series(True, index=d.index)
     for i in range(len(V)):
         for j in range(i + 1, len(V)):
             (x, xl, xf, xp), (y, yl, yf, yp) = V[i], V[j]
             if any({x, y} <= s for s in SAME_FAMILY):
+                continue
+            if {x, y} <= {"revenue", "quantity"}:
                 continue
             if "money" in (xf, yf):
                 mk = base & d["_ok"].astype(bool)
@@ -66,7 +90,13 @@ def run(F, currency: str | None) -> list[dict]:
             sub = d.loc[mk, [x, y]].dropna()
             if len(sub) < MIN_ROWS:
                 continue
-            r, p = perm_corr(sub[x].to_numpy(float), sub[y].to_numpy(float))
+            xs, ys = sub[x].to_numpy(float), sub[y].to_numpy(float)
+            if len(xs) > 50000:
+                ii = np.random.default_rng(1).choice(len(xs), 50000, replace=False); xs, ys = xs[ii], ys[ii]
+            r, p = spearmanr(xs, ys)
+            r, p = float(r), float(p)
+            if not np.isfinite(r):
+                continue
             if abs(r) < 0.15:
                 continue
             # describe with bins of x
@@ -79,7 +109,8 @@ def run(F, currency: str | None) -> list[dict]:
             head = f"{yl[0].upper() + yl[1:]} is {'higher' if r > 0 else 'lower'} when {xl} is higher"
             det = (f"When {xl} is lowest (around {fmt_value(lo.xm, xf, currency or '')}), {yl} averages {fmt_value(lo.ym, yf, currency or '')}; "
                    f"when it is highest (around {fmt_value(hi.xm, xf, currency or '')}), {fmt_value(hi.ym, yf, currency or '')}. Rank correlation {r:+.2f}.")
-            pol = (xp * yp * np.sign(r)) if xp and yp else 0
+            # the outcome (y) getting worse as x rises is a problem to work on; getting better is worth keeping
+            pol = 0 if not yp else (1 if r * yp > 0 else -1)
             out.append(insight("relationship", "service" if "rating" in (x, y) else "operations" if "_late" in (x, y) else "sales", head, det, p=p,
                                polarity="neutral" if pol == 0 else ("good" if pol > 0 else "bad"), actionable=True,
                                numbers={"rho": r, "low_x": float(lo.xm), "low_y": float(lo.ym), "high_x": float(hi.xm), "high_y": float(hi.ym), "rows": int(len(sub))},
@@ -91,7 +122,9 @@ def run(F, currency: str | None) -> list[dict]:
         if x in RESULTS:
             continue
         for (o, ol, op) in outcomes(F):
-            if x in DERIVED_OUTCOME.get(o, set()):
+            if x in DERIVED_OUTCOME.get(o, set()) or (o.startswith("__rate__") and x in NOT_BEFORE_OUTCOME):
+                continue
+            if leaks(d[o].fillna(False).astype(float).to_numpy(), d[x]):
                 continue
             sub = d.loc[d[x].notna() & d[o].notna(), [x, o]]
             if len(sub) < MIN_ROWS or sub[o].astype(float).mean() in (0.0, 1.0):
@@ -101,16 +134,18 @@ def run(F, currency: str | None) -> list[dict]:
             except ValueError:
                 continue
             yv = sub[o].astype(float).to_numpy()
-            obs, pv = perm_group_test(yv, np.ones(len(yv)), bins.astype(int), 5)
             rates = pd.Series(yv).groupby(bins).mean()
+            cnts = pd.Series(yv).groupby(bins).size()
             lo_r, hi_r = rates.iloc[0], rates.iloc[-1]
             if abs(hi_r - lo_r) < 0.02 or max(hi_r, lo_r) / max(min(hi_r, lo_r), 1e-9) < 1.3:
                 continue
-            p = float(min(pv[0], pv[-1]) * 2)
+            pool = (lo_r * cnts.iloc[0] + hi_r * cnts.iloc[-1]) / (cnts.iloc[0] + cnts.iloc[-1])
+            se = np.sqrt(pool * (1 - pool) * (1 / cnts.iloc[0] + 1 / cnts.iloc[-1]))
+            p = float(2 * norm.sf(abs(hi_r - lo_r) / se)) if se > 0 else 1.0
             xm = sub.groupby(bins)[x].median()
             out.append(insight("relationship", "operations", f"{ol[0].upper() + ol[1:]} {'rises' if hi_r > lo_r else 'falls'} with {xl}",
                                f"{ol[0].upper() + ol[1:]} is {lo_r:.1%} when {xl} is lowest (around {fmt_value(xm.iloc[0], xf, currency or '')}) and {hi_r:.1%} when it is highest (around {fmt_value(xm.iloc[-1], xf, currency or '')}).",
-                               p=min(p, 1.0), polarity="bad" if (hi_r > lo_r) == (op < 0) and xp >= 0 else "neutral", actionable=True,
+                               p=min(p, 1.0), polarity="bad" if (hi_r > lo_r) == (op < 0) else "good", actionable=True,
                                numbers={"low_rate": float(lo_r), "high_rate": float(hi_r), "rows": int(len(sub))},
                                chart={"type": "binned", "title": f"{ol[0].upper() + ol[1:]} by {xl} (five equal groups)", "fmt": "pct", "x_fmt": xf,
                                       "rows": [{"group": fmt_value(xm.iloc[k], xf, currency or ''), "value": float(rates.iloc[k])} for k in range(len(rates))], "keep_order": True},

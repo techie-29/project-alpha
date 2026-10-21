@@ -40,10 +40,17 @@ def targets(F: Frame) -> list[Target]:
         T.append(Target("margin", "Profit margin", "profit", "revenue", "ok", "pct", +1, True, "ratio"))
     if has("discount", "gross_revenue"):
         T.append(Target("discount_rate", "Discount rate", "discount", "gross_revenue", "ok", "pct", -1, True, "ratio"))
-    for col, val, fc in F.status_flags:
-        if fc in d.columns:
-            lab = f"{val} rate" if val != "yes" else f"Share with a {col.replace('_', ' ')}"
-            T.append(Target(f"rate:{fc}", lab[0].upper() + lab[1:], fc, None, "all", "pct", -1, False, "rate"))
+    kept: list[np.ndarray] = []
+    flags = sorted(F.status_flags, key=lambda x: (0 if x[0] in F.groups.get("status", [])[:1] else 1, x[1] == "yes"))
+    for col, val, fc in flags:
+        if fc not in d.columns:
+            continue
+        v = d[fc].fillna(False).astype(bool).to_numpy()
+        if any(_agree(v, w) for w in kept):
+            continue                                 # 'cancelled' in order status and in delivery status are the same thing
+        kept.append(v)
+        lab = f"{val} rate ({col.replace('_', ' ')})" if val != "yes" else f"Share with a {col.replace('_', ' ')}"
+        T.append(Target(f"rate:{fc}", lab[0].upper() + lab[1:], fc, None, "all", "pct", -1, False, "rate"))
     if has("_on_time"):
         T.append(Target("on_time", "On-time rate", "_on_time", None, "all", "pct", +1, False, "rate"))
     if has("_late"):
@@ -55,8 +62,18 @@ def targets(F: Frame) -> list[Target]:
     return T
 
 
+def _agree(a: np.ndarray, b: np.ndarray) -> bool:
+    if a.sum() == 0 or b.sum() == 0:
+        return False
+    j = (a & b).sum() / (a | b).sum()
+    return j >= 0.75
+
+
+OUTCOME_GROUPS = {"status", "sentiment", "reason"}       # results of what happened: shown, but never used to explain other results
+
+
 def group_columns(F: Frame, max_levels: int = 60) -> list[str]:
-    skip = {"name_label", "personal", "free_text", "currency"}
+    skip = {"name_label", "personal", "free_text", "currency"} | OUTCOME_GROUPS
     out = []
     for g, cols in F.groups.items():
         if g in skip:

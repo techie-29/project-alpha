@@ -52,7 +52,7 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
             if c in src.columns and c not in concept_cols:
                 concept_cols[c] = v
     for canon in NUMERIC_CANON + KEY_CANON:
-        c = _primary(concept_cols, canon)
+        c = _primary({k: v for k, v in concept_cols.items() if not (v.get("attribute_of") and CONCEPTS[v["concept"]].agg == "sum")}, canon)
         if c is not None and c in src.columns:
             vals = src[c]
             out[canon] = pd.to_numeric(vals, errors="coerce") if canon in NUMERIC_CANON else vals.astype("string").str.strip()
@@ -72,7 +72,7 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
             F.groups.setdefault(v["concept"], []).append(c)
             out[c] = src[c].astype("string").str.strip()
         elif con.kind == "number" and c not in used:
-            F.extra_numbers.append((c, v["concept"]))
+            F.extra_numbers.append((c, "number" if v.get("attribute_of") else v["concept"]))
             out[c] = pd.to_numeric(src[c], errors="coerce")
         elif con.kind == "key" and c not in used:
             F.groups.setdefault(v["concept"], []).append(c)

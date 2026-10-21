@@ -7,9 +7,17 @@ from ..discover.discover import discover
 from ..report.build import evidence_sample
 
 
-def run(view, limit: int = 25) -> tuple[list[dict], dict]:
+KEY_CANON = ("revenue", "profit", "quantity", "margin_pct", "rating", "duration", "discount", "cost", "gross_revenue", "unit_price", "activity_count")
+
+
+def run(view, frame=None, limit: int = 25) -> tuple[list[dict], dict]:
     if view is None or view.kind not in ("events", "periodic"):
         return [], {}
+    if frame is not None:                    # watch the measures that matter, in the main currency only (faster, less noise)
+        import copy
+        view = copy.copy(view)
+        key_cols = {frame.canon.get(k) for k in KEY_CANON if frame.canon.get(k)}
+        view.measures = [m for m in view.measures if (m.col is None or m.col in key_cols) and (m.currency is None or m.currency == frame.currency)]
     sr = scan_view(view)
     if sr is None:
         return [], {}

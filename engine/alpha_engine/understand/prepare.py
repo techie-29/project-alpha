@@ -191,12 +191,21 @@ def _measures(df: pd.DataFrame, roles: dict, p: Prepared) -> None:
     p.money_col = p.money_col or (money_cols[0] if money_cols else None)
 
 
-def prepare(df: pd.DataFrame, name: str = "file", confirmed: dict | None = None) -> Prepared:
+def prepare(df: pd.DataFrame, name: str = "file", confirmed: dict | None = None, known_roles: dict | None = None) -> Prepared:
+    """known_roles: column types already worked out (e.g. for a linked view built from files already read); only new
+    columns are profiled again."""
     confirmed = confirmed or {}
     p = Prepared(name=name, df=df, roles={}, kind="no_time")
-    df = _drop_total_rows(df.copy(), p.notes)
+    df = _drop_total_rows(df.copy(), p.notes) if not known_roles else df.copy()
     p.df = df
-    roles = apply_owner_confirmations(profile_columns(df), {k: v for k, v in confirmed.items() if not k.startswith("__")})
+    if known_roles:
+        new = [c for c in df.columns if c not in known_roles and c != "_row"]
+        prof = profile_columns(df[new]) if new else {}
+        base = {c: {k: (list(v) if isinstance(v, list) else v) for k, v in known_roles[c].items()} for c in df.columns if c in known_roles}
+        prof = {**base, **prof}
+    else:
+        prof = profile_columns(df)
+    roles = apply_owner_confirmations(prof, {k: v for k, v in confirmed.items() if not k.startswith("__")})
     p.roles = roles
     if len(df) <= 3 and not any(i["role"] == "time" for i in roles.values()):
         p.kind = "summary"

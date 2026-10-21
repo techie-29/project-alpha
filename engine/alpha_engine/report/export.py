@@ -1,98 +1,145 @@
-"""PDF and Excel versions of a finished report. Built only from the report JSON, so they always match what the owner saw."""
+"""PDF and Excel versions of a finished (v2) report, built only from the report JSON."""
 from __future__ import annotations
 import io
 from xml.sax.saxutils import escape
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from reportlab.graphics.charts.barcharts import HorizontalBarChart
+from reportlab.graphics.charts.lineplots import LinePlot
+from reportlab.graphics.shapes import Drawing, String
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+GREEN = colors.HexColor("#0b6b4f")
 
 
-def _n(v, unit=""):
+def fv(v, fmt="number", unit=""):
     if v is None:
         return "-"
+    if fmt == "pct":
+        return f"{v * 100:.1f}%"
+    if fmt == "rating":
+        return f"{v:.2f}"
+    if fmt == "days":
+        return f"{v:.1f} d"
     a = abs(v)
-    s = f"{v/1e6:.2f}M" if a >= 1e6 else f"{v/1e3:.1f}K" if a >= 1e4 else f"{v:,.0f}" if a >= 100 else f"{v:.2f}"
-    return f"{unit} {s}".strip()
+    s = f"{v / 1e6:.2f}M" if a >= 1e6 else f"{v / 1e3:.1f}K" if a >= 1e4 else f"{v:,.0f}" if a >= 100 else f"{v:,.2f}"
+    return f"{unit} {s}".strip() if fmt == "money" else s
 
 
-def _kpi_value(k):
-    if k["kind"] == "rate":
-        return f"{k['value']*100:.1f}%"
-    return _n(k["value"], k.get("unit", ""))
+def _chg(c):
+    return "-" if c is None else f"{c * 100:+.1f}%"
+
+
+def _line(chart, width=170 * mm, height=55 * mm):
+    g = chart["grains"].get("month") or chart["grains"][chart["default_grain"]]
+    vals = g["series"][0]["values"]
+    pts = [(i, v) for i, v in enumerate(vals) if v is not None]
+    if len(pts) < 2:
+        return None
+    d = Drawing(width, height)
+    lp = LinePlot()
+    lp.x, lp.y, lp.width, lp.height = 30, 18, width - 40, height - 30
+    lp.data = [pts]
+    lp.lines[0].strokeColor = GREEN
+    lp.xValueAxis.valueMin, lp.xValueAxis.valueMax = 0, len(vals) - 1
+    step = max(1, len(vals) // 6)
+    lp.xValueAxis.valueSteps = list(range(0, len(vals), step))
+    lp.xValueAxis.labelTextFormat = lambda i: g["x"][int(i)] if 0 <= int(i) < len(g["x"]) else ""
+    lp.xValueAxis.labels.fontSize = lp.yValueAxis.labels.fontSize = 6
+    lp.yValueAxis.labelTextFormat = lambda v: fv(v, chart["fmt"] if chart["fmt"] != "money" else "number")
+    d.add(lp)
+    d.add(String(30, height - 8, chart["title"] + (f" ({chart['unit']})" if chart.get("unit") else ""), fontSize=8, fillColor=colors.black))
+    return d
+
+
+def _bars(chart, width=170 * mm):
+    rows = [r for r in chart.get("rows", []) if r.get("value") is not None][:10]
+    if len(rows) < 2:
+        return None
+    h = 24 + 11 * len(rows)
+    d = Drawing(width, h)
+    bc = HorizontalBarChart()
+    bc.x, bc.y, bc.width, bc.height = 90, 6, width - 110, h - 22
+    bc.data = [[r["value"] for r in rows][::-1]]
+    bc.categoryAxis.categoryNames = [str(r["group"])[:22] for r in rows][::-1]
+    bc.categoryAxis.labels.fontSize = bc.valueAxis.labels.fontSize = 6
+    bc.valueAxis.labelTextFormat = lambda v: fv(v, chart.get("fmt", "number") if chart.get("fmt") != "money" else "number")
+    bc.valueAxis.valueMin = 0
+    bc.bars[0].fillColor = GREEN
+    d.add(bc)
+    d.add(String(90, h - 10, chart["title"] + (f" ({chart['unit']})" if chart.get("unit") else ""), fontSize=8))
+    return d
 
 
 def to_pdf(report: dict, owner: dict | None = None) -> bytes:
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm,
-                            title="Alpha business report", author="Project Alpha")
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm, title="Business report", author="Project Alpha")
     ss = getSampleStyleSheet()
     H1 = ParagraphStyle("H1", parent=ss["Title"], fontSize=19, leading=23, alignment=0, spaceAfter=4)
-    H2 = ParagraphStyle("H2", parent=ss["Heading2"], fontSize=13, spaceBefore=12, spaceAfter=5, textColor=colors.HexColor("#0b6b4f"))
-    B = ParagraphStyle("B", parent=ss["BodyText"], fontSize=9.5, leading=13)
-    S = ParagraphStyle("S", parent=B, fontSize=8, textColor=colors.HexColor("#555555"))
+    H2 = ParagraphStyle("H2", parent=ss["Heading2"], fontSize=13, spaceBefore=10, spaceAfter=5, textColor=GREEN)
+    B = ParagraphStyle("B", parent=ss["BodyText"], fontSize=9.2, leading=12.5)
+    S = ParagraphStyle("S", parent=B, fontSize=7.8, textColor=colors.HexColor("#555555"))
     T = ParagraphStyle("T", parent=B, fontName="Helvetica-Bold")
     p = lambda t, st=B: Paragraph(escape(str(t)), st)
-    b = report["briefing"]
-    el = [p("Business report", H1), p(f"Files: {', '.join(f['name'] for f in report['files'])}", S), p(f"Generated {report['generated_at'][:16].replace('T', ' ')} UTC", S), Spacer(1, 6),
-          p(b["headline"], ParagraphStyle("hl", parent=B, fontSize=13, leading=17, fontName="Helvetica-Bold")), p(b["status"]), p(b.get("coverage") or "", S),
-          p(f"Checked {b['checked']['series']:,} measure-and-group combinations ({b['checked']['tests']:,} statistical tests).", S)]
-    el.append(p("What matters most", H2))
-    for s in b["stories"] or []:
-        el += [p(f"{s['title']}  [{s['claim']}]", T), p(s["detail"]), p(s["action"], S), Spacer(1, 4)]
-    if not b["stories"]:
-        el.append(p("Nothing unusual changed. Everything checked stayed within its own normal range."))
-    el.append(p("Fix, keep, watch", H2))
-    for key, title in (("fix", "Fix"), ("keep", "Keep"), ("watch", "Watch")):
-        items = report["intelligence"][key]
-        el.append(p(f"{title} ({len(items)})", T))
-        for it in items[:8]:
-            el += [p(f"- {it['title']}"), p(it["where_to_look"], S)]
-    for v in report["your_data"]:
-        el += [PageBreak(), p(f"Your data: {v['view']}", H2), p(f"{v['rows_total']:,} rows, {v['from'][:10]} to {v['to'][:10]}, by {v['step']}.", S)]
-        rows = [["Measure", "Total", "Recent change", "Vs year before"]]
-        for k in v["kpis"]:
-            ch = k.get("change_recent")
-            rows.append([k["label"], _kpi_value(k), "-" if ch is None else (f"{ch*100:+.1f} pts" if k.get("change_is_points") else f"{ch*100:+.0f}%"),
-                         "-" if k.get("change_year") is None else f"{k['change_year']*100:+.0f}%"])
-        t = Table(rows, colWidths=[62 * mm, 40 * mm, 35 * mm, 35 * mm])
-        t.setStyle(TableStyle([("FONTSIZE", (0, 0), (-1, -1), 8.5), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e6f3ee")), ("GRID", (0, 0), (-1, -1), .25, colors.HexColor("#bbbbbb")), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
-        el.append(t)
-        for bd in v["breakdowns"][:3]:
-            el.append(p(f"{bd['measure']} by {bd['column'].replace('_', ' ')}", T))
-            tr = [["Group", bd["unit"] or "Amount", "Share"]] + [[r["value"], _n(r["amount"]), f"{r['share']*100:.0f}%"] for r in bd["rows"][:6]]
-            tt = Table(tr, colWidths=[70 * mm, 40 * mm, 30 * mm])
-            tt.setStyle(TableStyle([("FONTSIZE", (0, 0), (-1, -1), 8), ("GRID", (0, 0), (-1, -1), .25, colors.HexColor("#cccccc"))]))
-            el += [tt, Spacer(1, 4)]
-    el += [PageBreak(), p("Findings in detail", H2)]
-    for f in report["insights"]["findings"]:
-        n = f["numbers"]
-        el += [p(f"{f['title']}  [{f['claim']}]", T), p(f["detail"])]
-        el.append(p(f"Before {_n(n['before'], n.get('unit') or '')}, during {_n(n['after'], n.get('unit') or '')}. How sure: {f['evidence_strength']}. File: {f['view']}.", S))
-        d = f.get("drivers")
-        if d and d["by_column"]:
-            top = d["by_column"][0]["top"][0]
-            el.append(p(f"Lines up with {top['value']} ({d['by_column'][0]['col'].replace('_', ' ')}): {top['share_of_change']*100:.0f}% of the change.", S))
-        inv = f.get("investigation")
-        if inv and inv.get("summary"):
-            el.append(p(f"AI helper note (numbers verified against calculations): {inv['summary']}", S))
-        el.append(Spacer(1, 6))
-    if not report["insights"]["findings"]:
-        el.append(p("No findings: nothing changed beyond normal variation."))
-    qs = {a["questionId"]: a["answer"] for a in (owner or {}).get("answers", [])}
+    b, ov = report["briefing"], report["overview"]
+    el = [p("Business report", H1), p(f"Generated {report['generated_at'][:16].replace('T', ' ')} UTC  |  {b.get('coverage') or ''}", S), Spacer(1, 6),
+          p(b["headline"], ParagraphStyle("hl", parent=B, fontSize=13, leading=17, fontName="Helvetica-Bold"))]
+    el += [p("- " + k) for k in b["key_numbers"]]
+    el.append(p("Your files", H2))
+    rows = [["File", "What it is", "Rows", "Period"]] + [[f["name"], f["role_text"] + (f" ({f['entity']})" if f.get("entity") else ""), f"{f['rows']:,}" if f.get("rows") else "-",
+                                                          f"{f['from']} to {f['to']}" if f.get("from") else "-"] for f in ov["files"]]
+    tb = Table(rows, colWidths=[55 * mm, 50 * mm, 22 * mm, 45 * mm])
+    tb.setStyle(TableStyle([("FONTSIZE", (0, 0), (-1, -1), 7.5), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e6f3ee")), ("GRID", (0, 0), (-1, -1), .25, colors.HexColor("#bbbbbb"))]))
+    el.append(tb)
+    el.append(p("Key numbers", H2))
+    rows = [["Measure", "Value", "Last month vs previous", "vs a year ago"]]
+    for t in ov["tiles"]:
+        rows.append([t["label"], fv(t["value"], t["fmt"], t.get("unit") or ""), _chg((t.get("last_period") or {}).get("change")), _chg((t.get("vs_last_year") or {}).get("change"))])
+    tb = Table(rows, colWidths=[62 * mm, 40 * mm, 36 * mm, 34 * mm])
+    tb.setStyle(TableStyle([("FONTSIZE", (0, 0), (-1, -1), 8), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e6f3ee")), ("GRID", (0, 0), (-1, -1), .25, colors.HexColor("#bbbbbb"))]))
+    el.append(tb)
+    charts = []
+    for s in ov["sections"]:
+        for c in s["charts"]:
+            if c["type"] == "line" and len(charts) < 2:
+                charts.append(_line(c))
+            elif c["type"] == "bar" and len(charts) < 5 and not c.get("keep_order"):
+                charts.append(_bars(c))
+    for d in [c for c in charts if c]:
+        el += [Spacer(1, 4), d]
+    el += [PageBreak(), p("What to do", H2)]
+    for key, title in (("fix", "Fix"), ("keep", "Keep"), ("plan", "Plan"), ("watch", "Watch")):
+        items = report["suggestions"].get(key, [])
+        if items:
+            el.append(p(f"{title} ({len(items)})", T))
+            for s in items[:8]:
+                el += [p("- " + s["title"]), p(s["action"], S)]
+    el.append(p("Findings", H2))
+    items = [i for i in report["insights"]["items"] if not i.get("muted")][:25]
+    for i in items:
+        block = [p(f"{i['title']}  [{i['claim']}]", T), p(i["detail"])]
+        if i.get("ai_note"):
+            block.append(p("AI helper (numbers checked against calculations): " + i["ai_note"], S))
+        if i.get("suggestion"):
+            block.append(p("Suggestion: " + i["suggestion"], S))
+        el.append(KeepTogether(block + [Spacer(1, 5)]))
+    if not items:
+        el.append(p("Nothing stood out beyond normal variation."))
+    answers = {a["questionId"]: a["answer"] for a in (owner or {}).get("answers", [])}
     if report.get("questions"):
         el.append(p("Questions for the owner", H2))
         for q in report["questions"]:
-            el += [p(q["text"], S), p("Answer: " + qs.get(q["id"], "(not answered)"))]
+            el += [p(q["text"], S), p("Answer: " + answers.get(q["id"], "(not answered)"))]
     el.append(p("How to read this report", H2))
-    el += [p(b["what_this_means"], S)] + [p("- " + l, S) for l in report["limits"]] + [p("- " + c, S) for c in b["caveats"]]
+    el += [p(b["how_to_read"], S)] + [p("- " + l, S) for l in report["limits"]] + [p("- " + c, S) for c in b["caveats"]]
 
     def foot(c, d):
         c.saveState(); c.setFont("Helvetica", 7.5); c.setFillColor(colors.HexColor("#777777"))
-        c.drawString(18 * mm, 9 * mm, "Alpha - describes what changed and what it lines up with; it does not prove causes."); c.drawRightString(A4[0] - 18 * mm, 9 * mm, f"Page {d.page}"); c.restoreState()
+        c.drawString(18 * mm, 9 * mm, "Alpha - shows what the data says and what lines up with what; it does not prove causes."); c.drawRightString(A4[0] - 18 * mm, 9 * mm, f"Page {d.page}"); c.restoreState()
     doc.build(el, onFirstPage=foot, onLaterPages=foot)
     return buf.getvalue()
 
@@ -102,42 +149,46 @@ def _sheet(ws, header, rows, widths=None):
     for c in ws[1]:
         c.font = Font(bold=True, color="FFFFFF"); c.fill = PatternFill("solid", fgColor="0B6B4F"); c.alignment = Alignment(vertical="top", wrap_text=True)
     for r in rows:
-        ws.append(r)
+        ws.append([x if not isinstance(x, (list, dict)) else str(x) for x in r])
     for i, w in enumerate(widths or [], 1):
-        ws.column_dimensions[chr(64 + i)].width = w
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
     ws.freeze_panes = "A2"
 
 
 def to_xlsx(report: dict, owner: dict | None = None) -> bytes:
-    wb = Workbook(); b = report["briefing"]
+    wb = Workbook(); b, ov = report["briefing"], report["overview"]
     ws = wb.active; ws.title = "Briefing"
-    _sheet(ws, ["Item", "Text"], [["Headline", b["headline"]], ["Status", b["status"]], ["Coverage", b.get("coverage") or ""], ["Generated", report["generated_at"]],
-                                  *[["Caveat", c] for c in b["caveats"]], *[["Limit", l] for l in report["limits"]]], [16, 110])
-    ws = wb.create_sheet("Findings")
-    _sheet(ws, ["ID", "File", "Level", "Claim", "Good or bad", "Title", "Detail", "Before", "During", "Change %", "Currency/unit", "Amount involved", "Share of total %", "When", "How sure", "Where to look", "AI helper note"],
-           [[f["id"], f["view"], f["level"], f["claim"], f["polarity"], f["title"], f["detail"], f["numbers"]["before"], f["numbers"]["after"],
-             None if f["numbers"]["relative"] is None else round(f["numbers"]["relative"] * 100, 1), f["numbers"].get("unit"), f["numbers"]["impact"],
-             None if not f["numbers"]["impact_share"] else round(f["numbers"]["impact_share"] * 100, 2), f["when"], f["evidence_strength"],
-             next((i["where_to_look"] for k in ("fix", "keep", "watch") for i in report["intelligence"][k] if i["finding_id"] == f["id"]), ""),
-             (f.get("investigation") or {}).get("summary") or ""] for f in report["insights"]["findings"]],
-           [12, 28, 11, 22, 11, 60, 60, 12, 12, 10, 10, 14, 12, 18, 12, 60, 70])
-    ws = wb.create_sheet("Fix-Keep-Watch")
-    _sheet(ws, ["Bucket", "Finding", "Why", "Where to look"], [[k.capitalize(), i["title"], i["why"], i["where_to_look"]] for k in ("fix", "keep", "watch") for i in report["intelligence"][k]], [10, 70, 60, 70])
-    ws = wb.create_sheet("Key numbers")
-    _sheet(ws, ["File", "Measure", "Value", "Unit", "Recent change", "Vs year before"],
-           [[v["view"], k["label"], k["value"], k.get("unit", ""), k.get("change_recent"), k.get("change_year")] for v in report["your_data"] for k in v["kpis"]], [34, 30, 16, 8, 14, 14])
-    ws = wb.create_sheet("Breakdowns")
-    _sheet(ws, ["File", "Measure", "By", "Group", "Amount", "Share", "Rows", "Vs year before"],
-           [[v["view"], bd["measure"], bd["column"], r["value"], r["amount"], r["share"], r["rows"], r["change_year"]] for v in report["your_data"] for bd in v["breakdowns"] for r in bd["rows"]], [30, 26, 22, 22, 14, 10, 10, 14])
-    ws = wb.create_sheet("Rows behind findings")
-    rows, cols = [], 0
-    for f in report["insights"]["findings"]:
-        r = f.get("rows") or {}
-        for line in r.get("rows", []):
-            rows.append([f["id"], f["title"][:80], r.get("file"), *line]); cols = max(cols, len(line))
-    _sheet(ws, ["Finding", "Title", "File", *[f"Column {i+1}" for i in range(cols)]], rows, [12, 50, 28])
-    ws = wb.create_sheet("Owner notes")
+    _sheet(ws, ["Item", "Text"], [["Headline", b["headline"]], *[["Key number", k] for k in b["key_numbers"]], ["Coverage", b.get("coverage") or ""],
+                                  ["Generated", report["generated_at"]], *[["Caveat", c] for c in b["caveats"]], *[["Limit", l] for l in report["limits"]]], [16, 110])
+    _sheet(wb.create_sheet("Files"), ["File", "What it is", "Entity", "Rows", "From", "To", "Currency"],
+           [[f["name"], f["role_text"], f.get("entity"), f.get("rows"), f.get("from"), f.get("to"), f.get("currency")] for f in ov["files"]], [40, 22, 14, 12, 12, 12, 10])
+    _sheet(wb.create_sheet("Key numbers"), ["Measure", "Value", "Unit", "How it is calculated", "Last period", "Change vs previous", "Change vs a year ago"],
+           [[t["label"], t["value"], t.get("unit"), t.get("how"), (t.get("last_period") or {}).get("label"), (t.get("last_period") or {}).get("change"), (t.get("vs_last_year") or {}).get("change")] for t in ov["tiles"]],
+           [30, 16, 8, 40, 14, 16, 16])
+    _sheet(wb.create_sheet("Insights"), ["ID", "Type", "Area", "Claim", "Good or bad", "Title", "Detail", "Suggestion", "Impact", "Unit", "Score", "File", "AI helper note"],
+           [[i["id"], i["type"], i["area"], i["claim"], i["polarity"], i["title"], i["detail"], i.get("suggestion"), i.get("impact"), i.get("impact_unit"), i.get("score"), i.get("source"), i.get("ai_note")]
+            for i in report["insights"]["items"]], [12, 16, 12, 20, 10, 60, 70, 60, 14, 8, 8, 28, 60])
+    _sheet(wb.create_sheet("Suggestions"), ["Bucket", "Finding", "Action", "Claim"],
+           [[k.capitalize(), s["title"], s["action"], s["claim"]] for k, v in report["suggestions"].items() for s in v], [10, 60, 70, 20])
+    rows = []
+    for s in ov["sections"]:
+        for c in s["charts"]:
+            if c["type"] == "line":
+                g = c["grains"].get("month") or c["grains"][c["default_grain"]]
+                rows += [[s["title"], c["title"], x, g["series"][0]["name"], v] for x, v in zip(g["x"], g["series"][0]["values"])]
+            elif c.get("rows") and c["type"] in ("bar", "histogram"):
+                rows += [[s["title"], c["title"], r["group"], c.get("metric") or "", r["value"]] for r in c["rows"]]
+            elif c["type"] in ("stacked", "stacked_count"):
+                rows += [[s["title"], c["title"], x, se["name"], v] for se in c["series"] for x, v in zip(c["x"], se["values"])]
+    _sheet(wb.create_sheet("Chart data"), ["Section", "Chart", "Period / group", "Series", "Value"], rows, [16, 50, 20, 24, 16])
+    _sheet(wb.create_sheet("Coverage"), ["File", "Column", "Read as", "Confidence", "What Alpha did"], [[c["file"], c["column"], c["label"], c["confidence"], c["status"]] for c in report["coverage"]], [34, 28, 22, 10, 50])
+    ev = []
+    for i in report["insights"]["items"][:40]:
+        e = i.get("evidence") or {}
+        for line in (e.get("rows") or [])[:40]:
+            ev.append([i["id"], i["title"][:80], e.get("file"), *line])
+    _sheet(wb.create_sheet("Rows behind findings"), ["Finding", "Title", "File"] + [f"Col {k + 1}" for k in range(12)], ev, [12, 50, 28])
     fb = {x["findingId"]: x["verdict"] for x in (owner or {}).get("feedback", [])}
-    _sheet(ws, ["Type", "Item", "Answer or verdict"], [*[["Feedback", k, v] for k, v in fb.items()], *[["Answer", a["questionId"], a["answer"]] for a in (owner or {}).get("answers", [])]], [12, 40, 80])
+    _sheet(wb.create_sheet("Owner notes"), ["Type", "Item", "Answer or verdict"], [*[["Feedback", k, v] for k, v in fb.items()], *[["Answer", a["questionId"], a["answer"]] for a in (owner or {}).get("answers", [])]], [12, 40, 80])
     out = io.BytesIO(); wb.save(out)
     return out.getvalue()

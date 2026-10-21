@@ -7,7 +7,7 @@ from ..scan.stats import bh
 
 RNG_SEED = 12345
 MIN_GROUP_ROWS = 30
-TEST_SAMPLE = 60000
+TEST_SAMPLE = 40000
 
 
 def fmt_value(v, fmt: str, unit: str = "") -> str:
@@ -113,3 +113,51 @@ def rows_sample(F, mask: pd.Series, cols: list[str], sort_col: str | None = None
     for r in sub.itertuples(index=False, name=None):
         out.append([None if (isinstance(v, float) and not np.isfinite(v)) or v is pd.NA or v is None or (not isinstance(v, str) and pd.isna(v)) else (v.date().isoformat() if isinstance(v, pd.Timestamp) else v) for v in r])
     return {"file": F.name, "total": total, "columns": ["source row" if c == "_row" else "date" if c == "_t" else c for c in cols], "rows": out}
+
+
+def ratio_z(num: np.ndarray, den: np.ndarray, codes: np.ndarray, k: int):
+    """Fast approximate test of each group against the rest for a ratio of sums (linearised variance). Used to screen
+    before the slower shuffle test, so only promising groups are shuffled."""
+    from scipy.stats import norm
+    out_d, out_p = np.full(k, np.nan), np.ones(k)
+    TN, TD = num.sum(), den.sum()
+    for g in range(k):
+        m = codes == g
+        Dg, Dr = den[m].sum(), TD - den[m].sum()
+        if Dg <= 0 or Dr <= 0:
+            continue
+        Rg, Rr = num[m].sum() / Dg, (TN - num[m].sum()) / Dr
+        eg, er = num[m] - Rg * den[m], num[~m] - Rr * den[~m]
+        var = (eg @ eg) / Dg ** 2 + (er @ er) / Dr ** 2
+        if var <= 0:
+            continue
+        z = (Rg - Rr) / np.sqrt(var)
+        out_d[g], out_p[g] = Rg - Rr, 2 * norm.sf(abs(z))
+    return out_d, out_p
+
+
+def leaks(outcome: np.ndarray, col: pd.Series) -> bool:
+    """True when a column is shaped by the outcome itself, so comparing the outcome on it is circular:
+    - it is filled in only for some outcomes ('return reason' exists only for returns, 'delivery days' only for delivered orders);
+    - or it takes a fixed value for some outcomes (discount and points set to 0 when an order is cancelled)."""
+    y = np.asarray(outcome, dtype=float)
+    yb = y > 0.5
+    miss = col.isna().to_numpy()
+    if 0.02 <= miss.mean() <= 0.98:
+        a, b = y[miss], y[~miss]
+        if len(a) >= 30 and len(b) >= 30:
+            ra, rb = a.mean(), b.mean()
+            lo, hi = min(ra, rb), max(ra, rb)
+            if hi >= 0.02 and (lo == 0 or hi / lo >= 3):
+                return True
+    if pd.api.types.is_numeric_dtype(col) and yb.sum() >= 30 and (~yb).sum() >= 30:
+        v = col.to_numpy(dtype=float)
+        ok = np.isfinite(v)
+        if ok.sum() >= 60:
+            vals, cnt = np.unique(v[ok], return_counts=True)
+            mode = vals[np.argmax(cnt)]
+            in_pos = np.mean(v[ok & yb] == mode) if (ok & yb).any() else 0
+            in_neg = np.mean(v[ok & ~yb] == mode) if (ok & ~yb).any() else 0
+            if (in_pos >= 0.6 and in_pos >= 3 * in_neg) or (in_neg >= 0.6 and in_neg >= 3 * in_pos):
+                return True
+    return False

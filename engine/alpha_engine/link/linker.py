@@ -182,7 +182,17 @@ def build_views(tables: dict[str, Prepared], links: list[Link], confirmed: dict 
         df = _enrich(name, tables, links, (), notes, warns)
         df = df.drop(columns=[c for c in df.columns if c == f"__ok_{name}"])
         conf = {k: v for k, v in confirmed.items() if not str(k).startswith("link:")}
-        V = prepare(df, name, conf)
+        known = {}
+        for src in [name] + sorted({x.parent for x in used if x.child == name}, key=str):
+            for c, info in tables[src].roles.items():
+                if c in df.columns and c not in known and not c.startswith("__"):
+                    known[c] = info
+        if T.time_col and T.time_col in known:
+            known[T.time_col] = {**known[T.time_col], "date_order": "native"}
+        for c in df.columns:                                  # borrowed dates arrive already parsed
+            if c in known and known[c].get("role") == "time" and pd.api.types.is_datetime64_any_dtype(df[c]):
+                known[c] = {**known[c], "date_order": "native"}
+        V = prepare(df, name, conf, known_roles=known)
         V.sources = [name] + sorted({l.parent for l in used if l.child == name})
         V.notes = T.notes[:0] + V.notes
         views.append(V)

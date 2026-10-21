@@ -1,25 +1,27 @@
-"""Whole-engine orchestration: read -> understand -> (AI review) -> link -> scan -> discover -> report."""
+"""Whole-engine orchestration (v5):
+read -> understand columns -> business model -> link -> views -> frames -> overview -> analysis toolbox -> insights -> (AI) -> report."""
 from __future__ import annotations
+import datetime as dt
 import gzip
-import hashlib
 import json
-import os
 import pickle
 import time
-import datetime as dt
 from pathlib import Path
-import pandas as pd
 from .llm import Provider, NullProvider
 from .understand.reader import read_any
 from .understand.prepare import prepare, Prepared
 from .understand.ai_review import review_columns
 from .link.linker import find_links, apply_link_confirmations, build_views
-from .scan.engine import scan_view
-from .scan.snapshot import snapshot
-from .discover.discover import discover
-from .report.build import your_data, evidence_sample, intelligence, briefing, questions, clean
+from .model.build import build_model
+from .model.concepts import CONCEPTS
+from .metrics.frame import build_frame
+from .overview.build import build_overview, pick_frames
+from .analyses.run import run_all
+from .insights.assemble import assemble, coverage, briefing
+from .report.build import clean
 
 _CACHE: dict = {}
+VERSION = 2
 
 
 def _file_conf(confirmations: dict, name: str) -> dict:
@@ -35,7 +37,7 @@ def _file_conf(confirmations: dict, name: str) -> dict:
     return c
 
 
-def _load(spec: dict, confirmations: dict, provider: Provider) -> tuple[Prepared, list[str]]:
+def _load(spec: dict, confirmations: dict, provider: Provider) -> Prepared:
     path = Path(spec["path"])
     st = path.stat()
     fc = _file_conf(confirmations, spec["name"])
@@ -45,120 +47,135 @@ def _load(spec: dict, confirmations: dict, provider: Provider) -> tuple[Prepared
     df, rnotes = read_any(str(path))
     p = prepare(df, spec["name"], fc)
     p.notes = rnotes + p.notes
-    status = review_columns(p.df, p.roles, provider) if p.kind != "summary" else {"status": "skipped"}
-    p.ai_status = status  # type: ignore[attr-defined]
-    if len(_CACHE) > 6:
+    p.ai_status = review_columns(p.df, p.roles, provider) if p.kind != "summary" else {"status": "skipped"}   # type: ignore[attr-defined]
+    if len(_CACHE) > 8:
         _CACHE.pop(next(iter(_CACHE)))
-    _CACHE[key] = (p, rnotes)
-    return _CACHE[key]
+    _CACHE[key] = p
+    return p
 
 
-def _columns_public(p: Prepared) -> list[dict]:
-    out = []
-    for c, i in p.roles.items():
-        if c.startswith("__") or c == "_t":
-            continue
-        out.append({"name": c, "role": i["role"], "secondary": i.get("secondary", []), "confidence": i["confidence"], "reasons": i["reasons"][:3],
-                    "needs_confirmation": bool(i.get("needs_confirmation")), "ai": i.get("ai"), "unique": i.get("unique"), "source": i.get("source", "auto")})
-    return out
-
-
-def read(files: list[dict], confirmations: dict | None = None, provider: Provider | None = None) -> dict:
-    confirmations, provider = confirmations or {}, provider or NullProvider()
+def _understand(files: list[dict], confirmations: dict, provider: Provider, memory: dict | None, progress=None):
     tables = {}
-    for spec in files:
-        p, _ = _load(spec, confirmations, provider)
-        tables[spec["name"]] = p
+    for n, spec in enumerate(files):
+        tables[spec["name"]] = _load(spec, confirmations, provider)
+        if progress:
+            progress(f"Reading {spec['name']}", 3 + int(17 * (n + 1) / len(files)))
     links = apply_link_confirmations(find_links(tables), confirmations.get("links") or {})
-    return clean({
-        "files": [{"id": s.get("id"), "name": s["name"], "rows": int(len(tables[s["name"]].df)), "kind": tables[s["name"]].kind,
-                   "time_col": tables[s["name"]].time_col, "columns": _columns_public(tables[s["name"]]),
-                   "notes": tables[s["name"]].notes, "warnings": tables[s["name"]].warnings,
-                   "ai": getattr(tables[s["name"]], "ai_status", None)} for s in files],
-        "links": [l.public() for l in links],
-    })
+    model = build_model(tables, links, confirmations, memory)
+    return tables, links, model
+
+
+def _reading(files, tables, links, model) -> dict:
+    out = []
+    for s in files:
+        p, fm = tables[s["name"]], model["files"][s["name"]]
+        cols = []
+        for c, i in p.roles.items():
+            if c.startswith("__") or c in ("_t", "_row"):
+                continue
+            v = fm["columns"].get(c, {})
+            cols.append({"name": c, "type": i["role"], "type_confidence": i["confidence"], "concept": v.get("concept"), "label": v.get("label"),
+                         "confidence": v.get("confidence"), "reasons": v.get("reasons", [])[:3], "alternatives": v.get("alternatives", [])[:3],
+                         "needs_confirmation": bool(v.get("needs_confirmation")) or bool(i.get("needs_confirmation") and i["role"] not in ("empty", "constant")),
+                         "source": v.get("source", "auto"), "unique": i.get("unique")})
+        out.append({"id": s.get("id"), "name": s["name"], "rows": int(len(p.df)), "kind": p.kind, "role": fm["file"].get("role"), "entity": fm["file"].get("entity"),
+                    "role_reason": fm["file"].get("reason"), "time_col": p.time_col, "columns": cols, "identities": [i["text"] for i in fm.get("identities", [])][:8],
+                    "notes": p.notes, "warnings": p.warnings, "ai": getattr(p, "ai_status", None)})
+    return {"files": out, "links": [l.public() for l in links], "entities": model["entities"],
+            "concepts": [{"id": c.id, "label": c.label, "kind": c.kind, "area": c.area} for c in CONCEPTS.values()]}
+
+
+def read(files: list[dict], confirmations: dict | None = None, provider: Provider | None = None, memory: dict | None = None) -> dict:
+    confirmations, provider = confirmations or {}, provider or NullProvider()
+    tables, links, model = _understand(files, confirmations, provider, memory)
+    return clean(_reading(files, tables, links, model))
 
 
 def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, data_dir: str, provider: Provider | None = None,
-            progress=lambda stage, pct: None, investigate=None, preferences: dict | None = None) -> dict:
+            progress=lambda stage, pct: None, investigate=None, preferences: dict | None = None, memory: dict | None = None) -> dict:
     t0 = time.time()
     confirmations, provider = confirmations or {}, provider or NullProvider()
-    progress("Reading your files", 5)
-    tables = {}
-    for n, spec in enumerate(files):
-        p, _ = _load(spec, confirmations, provider)
-        tables[spec["name"]] = p
-        progress(f"Understanding {spec['name']}", 5 + int(15 * (n + 1) / len(files)))
-    reading = read(files, confirmations, provider)
-    progress("Linking files", 25)
-    links = apply_link_confirmations(find_links(tables), confirmations.get("links") or {})
+    progress("Reading your files", 2)
+    tables, links, model = _understand(files, confirmations, provider, memory, progress)
+    progress("Linking files into one business", 22)
     views, lnotes, lwarns = build_views(tables, links, {})
-    progress("Looking for changes", 30)
-    views_out, disc, snaps, state = [], [], [], []
-    scannable = [v for v in views if v.kind in ("events", "periodic")]
-    for n, v in enumerate(views):
-        if v in scannable:
-            sr = scan_view(v)
-            if sr is None:
-                v.warnings.append("Not enough usable dates (needs at least 12 periods) to look for changes over time.")
-                continue
-            d = discover(sr)
-            for f in d["findings"][:30]:
-                f["rows"] = evidence_sample(sr, f)
-            views_out.append(your_data(v, sr)); disc.append(d); state.append((v, sr))
-        elif v.kind in ("reference", "no_time", "dimension"):
-            s = snapshot(v)
-            if s:
-                snaps.append(s)
-        progress(f"Checked {v.name}", 30 + int(55 * (n + 1) / len(views)))
-    progress("Writing the report", 90)
-    findings = [f for d in disc for f in d["findings"]]
-    prefs = preferences or {}
-    for f in findings:
-        f["pattern"] = f"{f['family']}|{f['slice_col'] or ''}"
-        f["owner_pref"] = prefs.get(f["pattern"])
-        f["muted"] = f["owner_pref"] == "not_useful"
-    findings.sort(key=lambda f: (1 if f["muted"] else 0, 0 if f["owner_pref"] == "useful" else 1, 0 if f["level"] == "confirmed" else 1, -(f["numbers"]["impact_share"] or 0), f["q"]))
-    muted_ids = {f["id"] for f in findings if f["muted"]}
-    for d in disc:
-        d["stories"] = d["stories"]
+    frames = {}
+    for v in views:
+        if v.kind == "summary" or v.name not in model["files"]:
+            continue
+        fm = model["files"][v.name]
+        frames[v.name] = build_frame(v, fm["columns"], fm["file"], tables, links, model["files"])
+    progress("Building the overview", 28)
+    overview = build_overview(frames, {n: m["file"] for n, m in model["files"].items()}, links)
+    pick = pick_frames(frames, links)
+    raw, checked = run_all(pick, {v.name: v for v in views}, progress)
+    progress("Ranking what matters", 88)
+    asm = assemble(raw, overview["tiles"], preferences)
+    warnings = list(dict.fromkeys(lwarns + [w for p in tables.values() for w in p.warnings]))
+    unsure = sum(1 for fm in model["files"].values() for v in fm["columns"].values() if v.get("needs_confirmation"))
+    if unsure:
+        warnings.insert(0, f"{unsure} column(s) were read with low confidence. Check them on the 'How I read your files' screen; findings that use them are less certain.")
     report = {
-        "version": 1, "analysis_id": analysis_id, "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "files": [{"name": s["name"], "rows": int(len(tables[s["name"]].df)), "kind": tables[s["name"]].kind} for s in files],
-        "reading": reading, "link_notes": lnotes, "link_warnings": lwarns,
-        "briefing": briefing(files, views_out, [{**d, "findings": [f for f in d["findings"] if f["id"] not in muted_ids]} for d in disc], reading),
-        "your_data": views_out,
-        "insights": {"findings": findings, "stories": [s for d in disc for s in d["stories"]], "seasonal": [s for d in disc for s in d["seasonal"]],
-                     "snapshots": snaps, "quiet": not findings,
-                     "checked": {"series": sum(d["checked"]["series"] for d in disc), "tests": sum(d["checked"]["tests"] for d in disc),
-                                 "dropped_duplicate_measures": [x for d in disc for x in d["dropped_duplicates"]][:30]}},
-        "intelligence": intelligence([f for f in findings if not f["muted"]]),
-        "questions": questions([f for f in findings if not f["muted"]]),
-        "muted_count": len(muted_ids),
-        "not_explained": [{"finding_id": f["id"], "title": f["title"], "share": f["drivers"]["not_explained"]} for f in findings if f.get("drivers") and f["drivers"]["not_explained"] > 0.3][:10],
-        "limits": ["Amounts in different currencies are never added together.", "Findings describe what changed and what it lines up with; they do not prove a cause.",
-                   "Statistical minimums used: 30 rows per group, 3 rows per period, 4 periods per side, 5 rows per period to confirm."],
+        "version": VERSION, "analysis_id": analysis_id, "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "files": [{"name": s["name"], "rows": int(len(tables[s["name"]].df)), "role": model["files"][s["name"]]["file"].get("role")} for s in files],
+        "reading": _reading(files, tables, links, model), "link_notes": lnotes, "link_warnings": lwarns,
+        "overview": overview,
+        "insights": {"items": asm["items"], "stories": asm["stories"], "checked": checked, "quiet": not any(i["strength"] != "calculated" for i in asm["items"])},
+        "suggestions": asm["suggestions"],
+        "coverage": coverage(frames, model["files"], asm["items"], overview),
+        "briefing": briefing(overview, asm, warnings),
+        "questions": _questions(asm["items"]),
+        "limits": ["Amounts in different currencies are never added together; the main currency is shown and others are listed.",
+                   "Findings describe what the data shows and what lines up with what. They do not prove causes.",
+                   "Statistical minimums: 30 rows per group, 40 rows per combination, 12 months for trends, 2 full years for seasonality."],
         "ai": {"provider": provider.name, "investigation": None},
-        "seconds": round(time.time() - t0, 1),
     }
     if investigate is not None:
-        progress("Investigating the strongest leads", 93)
-        report = investigate(report, state)
+        progress("Asking the AI helper to check the strongest leads", 92)
+        try:
+            report = investigate(report, frames)
+        except Exception as e:
+            report["ai"]["investigation"] = {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+    report["seconds"] = round(time.time() - t0, 1)
     report = clean(report)
     out = Path(data_dir) / "analyses" / analysis_id
     out.mkdir(parents=True, exist_ok=True)
     (out / "report.json").write_text(json.dumps(report), encoding="utf-8")
-    save_state(out / "state.pkl.gz", state)
+    save_state(out / "state.pkl.gz", frames, model)
     progress("Done", 100)
     return report
 
 
-def save_state(path: Path, state: list) -> None:
-    """Slim copies of each view, so Ask Alpha can answer later without re-reading the uploads."""
+def _questions(items: list[dict]) -> list[dict]:
+    out = []
+    for i in items[:12]:
+        if i["muted"] or i["type"] not in ("change", "trend", "group_difference", "combination") or i["polarity"] != "bad":
+            continue
+        when = f" around {i['when']}" if i.get("when") else ""
+        la = i.get("look_at") or {}
+        where = f" for {la['value']}" if la.get("value") else ""
+        out.append({"id": i["id"], "insight_id": i["id"], "text": f"{i['title']}. Did anything happen{where}{when} that the files would not show (a price change, a supplier or staff change, a competitor, a closure)?"})
+        if len(out) >= 5:
+            break
+    return out
+
+
+def save_state(path: Path, frames: dict, model: dict) -> None:
+    """Compact copies of the analysis frames, so Ask Alpha can answer later without re-reading the uploads."""
     slim = []
-    for v, sr in state:
-        keep = [c for c in v.df.columns if not c.startswith("__rate__")]
-        slim.append({"name": v.name, "time_col": v.time_col, "money_col": v.money_col, "currency_col": v.currency_col, "slices": v.slices,
-                     "ok": v.ok.values, "roles": {c: {k: i[k] for k in ("role", "unique") if k in i} for c, i in v.roles.items()}, "df": v.df[keep].copy(), "step": sr.axis.step, "notes": v.notes})
-    with gzip.open(path, "wb") as fh:
+    for name, F in frames.items():
+        roles = {}
+        for c in F.df.columns:
+            if c in F.canon and c in ("order_id", "customer_id", "product_id"):
+                roles[c] = {"role": "id"}
+            elif any(c in cols for cols in F.groups.values()):
+                g = next(k for k, cols in F.groups.items() if c in cols)
+                roles[c] = {"role": "category" if g not in ("personal", "free_text", "name_label") else "text", "unique": int(F.df[c].nunique())}
+            elif c not in ("_ok", "_row") and str(F.df[c].dtype) not in ("object", "string"):
+                roles[c] = {"role": "measure"}
+        keep = [c for c in F.df.columns if not c.startswith("__rate__") or c in [fc for _, _, fc in F.status_flags]]
+        slim.append({"name": name, "role": F.role, "entity": F.entity, "df": F.df[keep].copy(), "ok": F.df["_ok"].to_numpy(), "roles": roles,
+                     "money_col": "revenue" if "revenue" in F.df.columns else None, "currency_col": "_cur" if "_cur" in F.df.columns else None,
+                     "currency": F.currency, "canon": F.canon, "step": "month"})
+    with gzip.open(path, "wb", compresslevel=1) as fh:
         pickle.dump(slim, fh, protocol=5)
