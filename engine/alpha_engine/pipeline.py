@@ -62,6 +62,10 @@ def _understand(files: list[dict], confirmations: dict, provider: Provider, memo
             progress(f"Reading {spec['name']}", 3 + int(17 * (n + 1) / len(files)))
     links = apply_link_confirmations(find_links(tables), confirmations.get("links") or {})
     model = build_model(tables, links, confirmations, memory)
+    from .investigate.ai import review_concepts
+    model["ai_review"] = review_concepts(model, tables, provider)
+    for name, p in tables.items():                              # the AI review may have changed some meanings
+        p.concepts = {c: v["concept"] for c, v in model["files"][name]["columns"].items()}
     return tables, links, model
 
 
@@ -81,7 +85,7 @@ def _reading(files, tables, links, model) -> dict:
         out.append({"id": s.get("id"), "name": s["name"], "rows": int(len(p.df)), "kind": p.kind, "role": fm["file"].get("role"), "entity": fm["file"].get("entity"),
                     "role_reason": fm["file"].get("reason"), "time_col": p.time_col, "columns": cols, "identities": [i["text"] for i in fm.get("identities", [])][:8],
                     "notes": p.notes, "warnings": p.warnings, "ai": getattr(p, "ai_status", None)})
-    return {"files": out, "links": [l.public() for l in links], "entities": model["entities"],
+    return {"files": out, "links": [l.public() for l in links], "entities": model["entities"], "ai_review": model.get("ai_review"),
             "concepts": [{"id": c.id, "label": c.label, "kind": c.kind, "area": c.area} for c in CONCEPTS.values()]}
 
 
@@ -131,7 +135,7 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
         "ai": {"provider": provider.name, "investigation": None},
     }
     if investigate is not None:
-        progress("Asking the AI helper to check the strongest leads", 92)
+        progress("The AI helper is checking leads and asking its own questions", 92)
         try:
             report = investigate(report, frames)
         except Exception as e:
@@ -161,21 +165,12 @@ def _questions(items: list[dict]) -> list[dict]:
 
 
 def save_state(path: Path, frames: dict, model: dict) -> None:
-    """Compact copies of the analysis frames, so Ask Alpha can answer later without re-reading the uploads."""
-    slim = []
-    for name, F in frames.items():
-        roles = {}
-        for c in F.df.columns:
-            if c in F.canon and c in ("order_id", "customer_id", "product_id"):
-                roles[c] = {"role": "id"}
-            elif any(c in cols for cols in F.groups.values()):
-                g = next(k for k, cols in F.groups.items() if c in cols)
-                roles[c] = {"role": "category" if g not in ("personal", "free_text", "name_label") else "text", "unique": int(F.df[c].nunique())}
-            elif c not in ("_ok", "_row") and str(F.df[c].dtype) not in ("object", "string"):
-                roles[c] = {"role": "measure"}
-        keep = [c for c in F.df.columns if not c.startswith("__rate__") or c in [fc for _, _, fc in F.status_flags]]
-        slim.append({"name": name, "role": F.role, "entity": F.entity, "df": F.df[keep].copy(), "ok": F.df["_ok"].to_numpy(), "roles": roles,
-                     "money_col": "revenue" if "revenue" in F.df.columns else None, "currency_col": "_cur" if "_cur" in F.df.columns else None,
-                     "currency": F.currency, "canon": F.canon, "step": "month"})
+    """The analysis frames (all files, business meanings attached), so Ask Alpha can answer later without re-reading uploads."""
     with gzip.open(path, "wb", compresslevel=1) as fh:
-        pickle.dump(slim, fh, protocol=5)
+        pickle.dump({"version": 2, "frames": frames}, fh, protocol=5)
+
+
+def load_state(path: Path) -> dict:
+    with gzip.open(path, "rb") as fh:
+        st = pickle.load(fh)
+    return st.get("frames", {}) if isinstance(st, dict) else {}

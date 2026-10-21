@@ -54,6 +54,7 @@ class ReadRequest(BaseModel):
     files: list[FileSpec]
     confirmations: dict = {}
     use_ai: bool = True
+    memory: dict = {}
 
 
 class AnalyzeRequest(ReadRequest):
@@ -62,15 +63,19 @@ class AnalyzeRequest(ReadRequest):
 
 
 @app.get("/v1/health")
-def health():
-    return {"ok": True, "ai": default_provider().name}
+def health(deep: bool = False):
+    p = default_provider()
+    out = {"ok": True, "ai": p.name}
+    if deep and hasattr(p, "check"):
+        out["ai_check"] = p.check()            # one tiny real call, to confirm the key and model work
+    return out
 
 
 @app.post("/v1/read")
 def read(req: ReadRequest, x_engine_key: str | None = Header(default=None)):
     _auth(x_engine_key)
     files = [{"id": f.id, "name": f.name, "path": _safe(f.path)} for f in req.files]
-    return pipeline.read(files, req.confirmations, default_provider() if req.use_ai else None)
+    return pipeline.read(files, req.confirmations, default_provider() if req.use_ai else None, req.memory)
 
 
 @app.post("/v1/analyze", status_code=202)
@@ -83,11 +88,11 @@ def analyze(req: AnalyzeRequest, x_engine_key: str | None = Header(default=None)
 
     def run():
         try:
-            from .investigate.loop import make_investigator
+            from .investigate.ai import make_investigator
             provider = default_provider() if req.use_ai else None
             pipeline.analyze(req.analysis_id, files, req.confirmations, DATA_DIR, provider,
                              lambda s, p: JOBS[req.analysis_id].update(stage=s, progress=p),
-                             make_investigator(provider, DATA_DIR) if provider is not None and provider.name != "none" else None, req.preferences)
+                             make_investigator(provider, DATA_DIR), req.preferences, req.memory)
             JOBS[req.analysis_id].update(status="done", progress=100, stage="Done")
         except Exception as e:                      # report a plain-language failure, never a stack trace
             traceback.print_exc()
@@ -118,6 +123,7 @@ def export(req: ExportRequest, x_engine_key: str | None = Header(default=None)):
 class AskRequest(BaseModel):
     analysis_id: str
     question: str
+    history: list = []
 
 
 @app.post("/v1/ask")
@@ -130,7 +136,7 @@ def ask(req: AskRequest, x_engine_key: str | None = Header(default=None)):
     rp = Path(DATA_DIR) / "analyses" / Path(req.analysis_id).name / "report.json"
     import json
     report = json.loads(rp.read_text(encoding="utf-8")) if rp.exists() else None
-    return run_ask(provider, DATA_DIR, req.analysis_id, req.question, report)
+    return run_ask(provider, DATA_DIR, req.analysis_id, req.question, report, req.history)
 
 
 @app.get("/v1/jobs/{analysis_id}")

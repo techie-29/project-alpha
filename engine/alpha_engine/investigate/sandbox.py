@@ -54,7 +54,7 @@ payload = pickle.load(open(sys.argv[1], "rb"))
 code = payload["code"]
 SAFE = {k: __builtins__.__dict__[k] if hasattr(__builtins__, "__dict__") else __builtins__[k] for k in
         ["abs","all","any","bool","dict","enumerate","float","int","len","list","max","min","range","round","set","sorted","str","sum","tuple","zip","isinstance","map","filter","reversed","divmod","pow","True","False","None","ValueError","KeyError","Exception"]}
-env = {"__builtins__": SAFE, "pd": pd, "np": np, "df": payload["df"], "result": None}
+env = {"__builtins__": SAFE, "pd": pd, "np": np, "df": payload["df"], "tables": payload.get("tables") or {}, "result": None}
 exec(compile(ast.parse(code), "<alpha>", "exec"), env)
 def conv(o, depth=0):
     if isinstance(o, pd.DataFrame):
@@ -76,8 +76,9 @@ sys.stdout.write("\n@@RESULT@@" + json.dumps(conv(env["result"])))
 '''
 
 
-def run(code: str, df, timeout: int = 25, memory_mb: int = 3000, cpu_s: int = 20) -> dict:
-    """Returns {"ok": True, "result": ...} or {"ok": False, "error": plain text}."""
+def run(code: str, df, timeout: int = 25, memory_mb: int = 3000, cpu_s: int = 20, tables: dict | None = None) -> dict:
+    """Returns {"ok": True, "result": ...} or {"ok": False, "error": plain text}.
+    `df` is the main table; `tables` (optional) gives every table by file name, for questions that need several files."""
     try:
         check(code)
     except Rejected as e:
@@ -85,7 +86,7 @@ def run(code: str, df, timeout: int = 25, memory_mb: int = 3000, cpu_s: int = 20
     with tempfile.TemporaryDirectory() as d:
         pk = os.path.join(d, "in.pkl")
         with open(pk, "wb") as fh:
-            pickle.dump({"code": code, "df": df}, fh, protocol=5)
+            pickle.dump({"code": code, "df": df, "tables": tables or {}}, fh, protocol=5)
         try:
             p = subprocess.run([sys.executable, "-I", "-c", RUNNER, pk, str(memory_mb * 1024 * 1024), str(cpu_s)], capture_output=True, text=True,
                                timeout=timeout, cwd=d, env={"PATH": os.environ.get("PATH", ""), "PYTHONHASHSEED": "0", "OMP_NUM_THREADS": "1"})
