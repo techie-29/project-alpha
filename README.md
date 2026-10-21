@@ -41,7 +41,7 @@ cd engine
 python3 -m venv .venv && source .venv/bin/activate
 pip install pandas numpy scipy openpyxl reportlab fastapi uvicorn python-multipart
 pip install pyarrow        # optional, faster file reading
-cp .env.example .env      # then set ENGINE_API_KEY (same as backend), the two folders, and GEMINI_API_KEY
+cp .env.example .env      # then set ENGINE_API_KEY (same as backend), the two folders, and OPENROUTER_API_KEY (or GEMINI_API_KEY)
 uvicorn alpha_engine.api:app --host 127.0.0.1 --port 8001
 ```
 

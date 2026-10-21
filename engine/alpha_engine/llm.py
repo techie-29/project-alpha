@@ -2,6 +2,7 @@
 
 NullProvider   - no AI: callers fall back to code-only behaviour.
 FakeProvider   - fixed answers, for tests.
+OpenRouterProvider - OpenRouter (DeepSeek etc.), key from OPENROUTER_API_KEY.
 GeminiProvider - Google Gemini REST API (free tier). Key comes from the GEMINI_API_KEY environment variable
                  (read from engine/.env, which git ignores). The key is never logged or sent anywhere but Google.
 Only summaries are ever sent: column names and statistics, never rows, customer names or free text.
@@ -145,12 +146,86 @@ class GeminiProvider(Provider):
             return {"ok": False, "model": self.model, "error": str(e)}
 
 
+class OpenRouterProvider(Provider):
+    """OpenRouter (OpenAI-style chat API). Reaches DeepSeek and many other models with one key.
+    Env: OPENROUTER_API_KEY, OPENROUTER_MODEL (default deepseek/deepseek-chat)."""
+    name = "openrouter"
+    _last_call = 0.0
+
+    def __init__(self, api_key: str | None = None, model: str | None = None, timeout: int = 120):
+        self.key = (api_key or os.environ.get("OPENROUTER_API_KEY", "")).strip()
+        self.model = (model or os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat")).strip()
+        self.timeout = timeout
+        self.min_interval = float(os.environ.get("AI_MIN_INTERVAL", "1.0"))
+        if not self.key:
+            raise ProviderError("OPENROUTER_API_KEY is not set.")
+
+    def complete_json(self, system: str, payload: dict) -> dict:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        text_in = json.dumps(payload, default=_jsonable)
+        if len(text_in) > 300_000:
+            text_in = text_in[:300_000]
+        body = json.dumps({
+            "model": self.model,
+            "messages": [{"role": "system", "content": system + "\nReply with one JSON object only."},
+                         {"role": "user", "content": text_in}],
+            "temperature": 0.2, "max_tokens": 8192,
+            "response_format": {"type": "json_object"},
+        }).encode()
+        last = "unknown error"
+        for attempt in range(4):
+            wait = OpenRouterProvider._last_call + self.min_interval - time.time()
+            if wait > 0:
+                time.sleep(wait)
+            OpenRouterProvider._last_call = time.time()
+            req = urllib.request.Request(url, data=body, headers={
+                "Content-Type": "application/json", "Authorization": f"Bearer {self.key}",
+                "X-Title": "Project Alpha"})
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                    data = json.load(r)
+                if data.get("error"):
+                    last = str((data["error"] or {}).get("message", "error"))[:160]
+                    time.sleep(3 * (attempt + 1))
+                    continue
+                text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                if not text.strip():
+                    last = "empty answer"
+                    continue
+                return parse_json_text(text)
+            except urllib.error.HTTPError as e:
+                try:
+                    detail = json.loads(e.read().decode("utf-8", "replace")).get("error", {})
+                except Exception:
+                    detail = {}
+                last = f"HTTP {e.code} {str(detail.get('message', ''))[:160]}".strip()
+                if e.code in (429, 500, 502, 503, 504):
+                    time.sleep(4 * (attempt + 1))
+                    continue
+                break                                   # 401 bad key / 402 credits / 404 model: retrying will not help
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                last = f"network: {type(e).__name__}"
+                time.sleep(2)
+            except (json.JSONDecodeError, KeyError, IndexError, ValueError) as e:
+                last = f"unreadable answer: {type(e).__name__}"
+        raise ProviderError(f"OpenRouter call failed: {last}")
+
+    def check(self) -> dict:
+        try:
+            r = self.complete_json("Reply only with JSON.", {"task": "reply with {\"ok\": true}"})
+            return {"ok": bool(r.get("ok", True)), "model": self.model}
+        except ProviderError as e:
+            return {"ok": False, "model": self.model, "error": str(e)}
+
+
 def default_provider() -> Provider:
-    """Gemini when a key exists, otherwise no AI (the engine still works)."""
-    try:
-        return GeminiProvider()
-    except ProviderError:
-        return NullProvider()
+    """OpenRouter if its key exists, else Gemini if its key exists, else no AI (the engine still works)."""
+    for cls in (OpenRouterProvider, GeminiProvider):
+        try:
+            return cls()
+        except ProviderError:
+            continue
+    return NullProvider()
 
 
 class ScriptedProvider(Provider):

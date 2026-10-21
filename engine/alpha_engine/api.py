@@ -132,7 +132,7 @@ def ask(req: AskRequest, x_engine_key: str | None = Header(default=None)):
     from .investigate.ask import ask as run_ask
     provider = default_provider()
     if provider.name == "none":
-        return {"answer": None, "note": "The AI helper is not set up. Add your Gemini key to engine/.env to use Ask Alpha."}
+        return {"answer": None, "note": "The AI helper is not set up. Add OPENROUTER_API_KEY (or GEMINI_API_KEY) to engine/.env to use Ask Alpha."}
     rp = Path(DATA_DIR) / "analyses" / Path(req.analysis_id).name / "report.json"
     import json
     report = json.loads(rp.read_text(encoding="utf-8")) if rp.exists() else None

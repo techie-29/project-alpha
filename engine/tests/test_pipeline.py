@@ -11,6 +11,7 @@ def env(tmp_path, monkeypatch):
     up = tmp_path / "uploads"; up.mkdir()
     monkeypatch.setenv("ENGINE_UPLOAD_DIR", str(up)); monkeypatch.setenv("ENGINE_DATA_DIR", str(tmp_path / "data")); monkeypatch.setenv("ENGINE_API_KEY", "k")
     monkeypatch.setenv("GEMINI_API_KEY", "")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
     import importlib, alpha_engine.api as api
     importlib.reload(api)
     return api, up, tmp_path
