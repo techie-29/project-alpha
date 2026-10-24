@@ -8,7 +8,8 @@ import pandas as pd
 from ..model.concepts import CONCEPTS
 
 NUMERIC_CANON = ["revenue", "gross_revenue", "cost", "expense", "profit", "discount", "discount_pct", "tax", "unit_price", "unit_cost", "money_other",
-                 "quantity", "stock_level", "reorder_level", "margin_pct", "rating", "duration", "promised_duration", "age", "points", "activity_count", "percent"]
+                 "quantity", "stock_level", "reorder_level", "margin_pct", "rating", "duration", "promised_duration", "age", "points", "activity_count", "percent",
+                 "units_received", "units_ordered", "forecast", "competitor_price", "price_level", "trade_volume", "level_value"]
 KEY_CANON = ["order_id", "customer_id", "product_id", "employee_id", "supplier_id", "site_id"]
 MONEY = {c for c in NUMERIC_CANON if CONCEPTS[c].money}
 
@@ -31,6 +32,8 @@ class Frame:
     duration_unit: str = "days"
     nouns: dict = field(default_factory=dict)
     gaps: list = field(default_factory=list)                                  # derived 'days between two dates' columns
+    item_keys: list = field(default_factory=list)                             # what one stock item is (product, or product + store)
+    used_dates: set = field(default_factory=set)
 
     def has(self, *names) -> bool:
         return all(n in self.df.columns and self.df[n].notna().any() for n in names)
@@ -58,6 +61,9 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
                 concept_cols[c] = v
     for canon in NUMERIC_CANON + KEY_CANON:
         c = _primary({k: v for k, v in concept_cols.items() if not (v.get("attribute_of") and CONCEPTS[v["concept"]].agg == "sum")}, canon)
+        if canon == "price_level":                     # of open / high / low / close, the closing price is 'the price'
+            pc = [k for k, v in concept_cols.items() if v["concept"] == "price_level"]
+            c = next((k for rx in (r"^(?!.*adj).*close", r"adj", r"ltp|last", r"price") for k in pc if re.search(rx, str(k), re.I)), c)
         if c is not None and c in src.columns:
             vals = src[c]
             if canon in NUMERIC_CANON:
@@ -99,16 +105,18 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
             out["_cur"] = cv["constant"]
         elif cur_col in src.columns:
             out["_cur"] = src[cur_col].astype("string").str.strip().str.upper()
+    _movements(F, src, concept_cols)
+    _date_roles(F, src, concept_cols, p, has_time)
     # time unit of the time-taken column, from its header
     dc = F.canon.get("duration") or F.canon.get("promised_duration")
     if dc:
         h = str(dc).lower()
-        F.duration_unit = "min" if re.search(r"min", h) else "hours" if re.search(r"hour|hrs|\bhr", h) else "days"
+        F.duration_unit = "days" if h.startswith("days from") else "min" if re.search(r"min", h) else "hours" if re.search(r"hour|hrs|\bhr", h) else "days"
     # other dates on the same row give gaps in days (booked -> appointment, order -> ship)
     if has_time:
         for c, v in concept_cols.items():
-            if CONCEPTS[v["concept"]].kind == "date" and c in src.columns and c != p.time_col:
-                d2 = pd.to_datetime(src[c], errors="coerce", dayfirst=bool(p.roles.get(c, {}).get("date_order", "").startswith(("day", "ambig"))))
+            if CONCEPTS[v["concept"]].kind == "date" and c in src.columns and c != p.time_col and c not in F.used_dates:
+                d2 = pd.to_datetime(src[c], errors="coerce")
                 gap = (out["_t"].dt.normalize() - d2.dt.normalize()).dt.days
                 if gap.notna().mean() > 0.5 and gap.abs().median() <= 1100:
                     if gap.median() < 0:
@@ -117,6 +125,12 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
                     out[name] = gap.astype(float)
                     F.extra_numbers.append((name, "number"))
                     F.gaps.append(name)
+    F.item_keys = [k for k in (file_info.get("item_keys") or []) if k in src.columns]
+    if F.item_keys:
+        F.item_keys = ["product_id" if F.canon.get("product_id") == k else k for k in F.item_keys]
+        for k in F.item_keys:
+            if k not in out.columns and k in src.columns:
+                out[k] = src[k].astype("string").str.strip()
     _lookup_parents(F, p, tables or {}, links or [], models or {})
     _derive(F)
     F.status_flags = [(c, v, fc) for c, v, fc in getattr(p, "_rate_cols", []) if fc in src.columns]
@@ -166,6 +180,67 @@ def relabel(text: str, nouns: dict) -> str:
     return text
 
 
+MOVE_OUT = re.compile(r"^(out|outward|sale|sales|sold|issue|issued|dispatch|dispatched|consumption|consumed|stock out|transfer out)$", re.I)
+MOVE_IN = re.compile(r"^(in|inward|receipt|received|grn|purchase|purchased|stock in|production|transfer in|opening|opening stock)$", re.I)
+MOVE_LOSS = re.compile(r"damage|expired|expiry|wastage|waste|write ?off|writeoff|loss|lost|theft|shrink|scrap|spoil|broken", re.I)
+MOVE_RETURN = re.compile(r"return", re.I)
+
+
+def _movements(F: Frame, src: pd.DataFrame, concept_cols: dict) -> None:
+    """A stock ledger (IN / OUT / Sale / Damaged ... with a quantity): split the quantity into units sold, received and lost."""
+    mcol = _primary(concept_cols, "movement_type")
+    if not mcol or "quantity" not in F.df.columns or mcol not in src.columns:
+        return
+    t = src[mcol].astype("string").str.strip()
+    q = F.df["quantity"]
+    kind = pd.Series("other", index=src.index)
+    kind[t.str.match(MOVE_OUT.pattern, case=False, na=False).astype(bool)] = "out"
+    kind[t.str.match(MOVE_IN.pattern, case=False, na=False).astype(bool)] = "in"
+    kind[t.str.contains(MOVE_RETURN.pattern, case=False, na=False).astype(bool)] = "return"
+    kind[t.str.contains(MOVE_LOSS.pattern, case=False, na=False).astype(bool)] = "loss"
+    signed = (q < 0).mean() > 0.15
+    if (kind == "other").mean() > 0.5 and signed:       # no words, only signs: + is in, - is out
+        kind = pd.Series(np.where(q < 0, "out", "in"), index=src.index)
+    a = q.abs()
+    src_q = F.canon["quantity"]
+    F.df["quantity"] = a.where(kind == "out")
+    F.df["units_received"] = a.where(kind == "in")
+    F.df["_units_lost"] = a.where(kind == "loss")
+    F.df["_units_returned"] = a.where(kind == "return")
+    F.canon["units_received"] = f"{src_q} where {mcol} is an inward movement"
+    F.canon["quantity"] = f"{src_q} where {mcol} is a sale / issue"
+    F.canon["_units_lost"] = f"{src_q} where {mcol} is damaged / expired / lost"
+    F.notes.append(f"'{mcol}' says which way stock moved: units sold, received, returned and lost (damaged/expired) are counted separately.")
+
+
+def _date_roles(F: Frame, src: pd.DataFrame, concept_cols: dict, p, has_time: bool) -> None:
+    """Dates other than the timeline: completed/received - order = time taken; due - order = time promised; expiry kept per row."""
+    dd = {}
+    for c, v in sorted(concept_cols.items(), key=lambda kv: -kv[1]["confidence"]):
+        if CONCEPTS[v["concept"]].kind == "date" and c in src.columns and c != p.time_col:
+            dd.setdefault(v["concept"], c)
+    ex = dd.get("expiry_date")
+    if ex:
+        F.df["_expiry"] = pd.to_datetime(src[ex], errors="coerce")
+        F.used_dates.add(ex)
+    if not has_time:
+        return
+    start = F.df["_t"].dt.normalize()
+    done, due = dd.get("done_date"), dd.get("due_date")
+    if done and "duration" not in F.df.columns:
+        d = (pd.to_datetime(src[done], errors="coerce").dt.normalize() - start).dt.days
+        if d.notna().mean() > 0.3 and d.median() >= 0:
+            F.df["duration"] = d.astype(float)
+            F.canon["duration"] = f"days from {p.time_col} to {done}"
+            F.used_dates.add(done)
+    if due and "promised_duration" not in F.df.columns:
+        d = (pd.to_datetime(src[due], errors="coerce").dt.normalize() - start).dt.days
+        if d.notna().mean() > 0.3 and d.median() >= 0:
+            F.df["promised_duration"] = d.astype(float)
+            F.canon["promised_duration"] = f"days from {p.time_col} to {due}"
+            F.used_dates.add(due)
+
+
 def _lookup_parents(F: Frame, p, tables: dict, links: list, models: dict) -> None:
     """Bring numeric attributes (unit cost, unit price, stock...) and concepts from master lists through used links."""
     for l in links:
@@ -187,6 +262,12 @@ def _lookup_parents(F: Frame, p, tables: dict, links: list, models: dict) -> Non
                 F.df[canon] = child_key.map(m).values
                 F.canon[canon] = f"{l.parent}.{c}"
                 F.notes.append(f"{CONCEPTS[canon].label} looked up from {l.parent} through {l.child_col}.")
+        ex = _primary(pcols, "expiry_date")
+        if ex and "_expiry" not in F.df.columns and ex in P.df.columns:
+            m = pd.Series(pd.to_datetime(P.df[ex], errors="coerce").values, index=key.values)
+            m = m[~m.index.duplicated()]
+            F.df["_expiry"] = child_key.map(m).values
+            F.notes.append(f"Expiry dates looked up from {l.parent}.")
         for c, v in pcols.items():
             con = CONCEPTS[v["concept"]]
             if con.kind == "group" and c in F.df.columns and c not in sum(F.groups.values(), []):
@@ -204,7 +285,7 @@ def _derive(F: Frame) -> None:
         net = d["gross_revenue"] - d.get("discount", 0)
         d["revenue"] = net
         F.canon["revenue"] = "gross sales minus discount" if "discount" in d else F.canon["gross_revenue"]
-    if "revenue" not in d and {"quantity", "unit_price"} <= set(d.columns):
+    if "revenue" not in d and {"quantity", "unit_price"} <= set(d.columns) and not d["quantity"].isna().all():
         d["revenue"] = d["quantity"] * d["unit_price"]
         F.canon["revenue"] = "units x unit price"
         F.notes.append("Revenue is calculated as units x unit price (there is no amount column).")
@@ -218,6 +299,28 @@ def _derive(F: Frame) -> None:
     if {"duration", "promised_duration"} <= set(d.columns):
         d["_late"] = d["duration"] - d["promised_duration"]
         d["_on_time"] = (d["duration"] <= d["promised_duration"]).where(d["duration"].notna() & d["promised_duration"].notna())
+    if "cost" not in d and "unit_cost" in d and ("units_received" in d or "units_ordered" in d) and "quantity" not in d:
+        q = d["units_received"] if "units_received" in d and d["units_received"].notna().any() else d["units_ordered"]
+        d["_purchase_value"] = q * d["unit_cost"]
+        F.canon["_purchase_value"] = "units x unit cost"
+    if "_units_lost" in d:
+        d["_units_out_all"] = d.get("quantity", 0).fillna(0) + d["_units_lost"].fillna(0) if "quantity" in d else d["_units_lost"]
+        d.loc[d["_units_out_all"] == 0, "_units_out_all"] = np.nan
+    if {"forecast", "quantity"} <= set(d.columns):
+        d["_fc_abs_err"] = (d["forecast"] - d["quantity"]).abs()
+    if {"unit_price", "competitor_price"} <= set(d.columns):
+        d["_price_gap"] = d["unit_price"] / d["competitor_price"].where(d["competitor_price"] > 0) - 1
+    if "discount_pct" in d and d["discount_pct"].max() > 1.5:
+        d["discount_pct"] = d["discount_pct"] / 100.0                     # 10 means 10%
+    if "discount_pct" in d and "revenue" in d and F.canon.get("revenue") == "units x unit price":
+        d["revenue"] = d["revenue"] * (1 - d["discount_pct"].fillna(0))
+        F.canon["revenue"] = "units x unit price x (1 - discount %)"
+    if "price_level" in d and "_t" in d:
+        keys = [k for k in ("ticker",) if k in d]
+        tick = [c for c in sum(F.groups.values(), []) if c in d and F.groups.get("ticker") and c in F.groups["ticker"]]
+        o = d.sort_values("_t")
+        r = o.groupby(tick)["price_level"].pct_change() if tick else o["price_level"].pct_change()
+        d["_ret"] = r.reindex(d.index)
     if "stock_level" in d and "unit_cost" in d:
         d["_stock_value"] = d["stock_level"] * d["unit_cost"]
     elif "stock_level" in d and "unit_price" in d:

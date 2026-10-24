@@ -4,7 +4,7 @@ import os
 import sys
 import time
 import numpy as np
-from . import groups, concentration, trends, relations, customers, stock, outliers, explore, changes
+from . import groups, concentration, trends, relations, customers, stock, outliers, explore, changes, market
 
 
 def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tuple[list[dict], dict]:
@@ -33,6 +33,8 @@ def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tupl
         out.extend(res)
 
     sv = views_by_name.get(S.name) if S is not None else None
+    if S is not None and ("price_level" in S.df.columns or "level_value" in S.df.columns) and not S.has("revenue"):
+        sv = None                                   # prices: the price checks below replace the general change scan
     pool, fut = None, None
     if sv is not None and _parallel_ok():
         # the change scan is the longest step and independent of the others: start it in a forked process now
@@ -51,6 +53,7 @@ def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tupl
     step("relationships", lambda: relations.run(S, cur), 55)
     step("customer behaviour", lambda: customers.run(S, cur), 60)
     step("stock health", lambda: stock.run(K, [L, S], cur), 63)
+    step("prices", lambda: market.run(S, cur), 64)
     step("unusual values", lambda: outliers.run([L, S], cur), 66)
     step("hidden combinations", lambda: explore.run(S, cur), 72)
     if fut is not None:

@@ -6,7 +6,7 @@ from ..analyses.common import fmt_value
 from ..model.concepts import CONCEPTS
 
 STRENGTH_W = {"supported": 1.0, "calculated": 0.8, "early": 0.35}
-TYPE_W = {"stockout": 1.0, "loss_makers": 1.0, "quiet_customers": 0.95, "group_difference": 0.9, "combination": 0.95, "change": 0.85, "trend": 0.85,
+TYPE_W = {"stockout": 1.0, "loss_makers": 1.0, "expiry": 0.95, "quiet_customers": 0.95, "group_difference": 0.9, "combination": 0.95, "change": 0.85, "trend": 0.85,
           "dead_stock": 0.85, "low_cover": 0.85, "relationship": 0.8, "share_shift": 0.75, "dependency": 0.8, "concentration": 0.6, "seasonality": 0.7,
           "weekday": 0.55, "new_customers": 0.7, "overstock": 0.7, "repeat": 0.45, "extreme_values": 0.5, "duplicates": 0.7}
 

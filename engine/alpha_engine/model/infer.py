@@ -14,7 +14,7 @@ from difflib import SequenceMatcher
 import numpy as np
 import pandas as pd
 from .concepts import (CONCEPTS, NUMBER_CONCEPTS, KEY_CONCEPTS, GROUP_CONCEPTS, DATE_CONCEPTS, STATUS_WORDS, CHANNEL_WORDS,
-                       PAYMENT_WORDS, GENDER_VALUES, CURRENCIES, REGION_WORDS, SENTIMENT_WORDS, YES_NO_VALUES, ID_HEAD, PERSON_NAME, ALWAYS_PII, ID_VALUE)
+                       PAYMENT_WORDS, MOVEMENT_WORDS, TICKER_VALUE, GENDER_VALUES, CURRENCIES, REGION_WORDS, SENTIMENT_WORDS, YES_NO_VALUES, ID_HEAD, PERSON_NAME, ALWAYS_PII, ID_VALUE)
 
 FEW_ENTITY_KEYS = {"site_id", "employee_id", "supplier_id"}
 LOCATION_TOKEN = re.compile(r"(^|_|\s)(city|state|country|region|zone|district|province|postal|zip|pincode|pin_code|territory)($|_|\s|code)", re.I)     # entities that are often few (6 warehouses, 12 staff)
@@ -95,7 +95,7 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
         if st is None:
             return 0.0, None
         pos = st["neg"] <= 0.02
-        if cid in ("revenue", "gross_revenue", "cost", "expense", "money_other", "unit_price", "unit_cost"):
+        if cid in ("revenue", "gross_revenue", "cost", "expense", "money_other", "unit_price", "unit_cost", "competitor_price", "price_level"):
             if not pos and cid != "money_other":
                 return 0.15, "has negative values"
             sc = 0.45 + (0.3 if st["dec2"] >= 0.4 else 0.15 if st["med"] >= 20 else 0.0)
@@ -108,6 +108,14 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
             if st["int"] < 0.97:
                 return 0.05, "not whole numbers"
             return (0.75 if st["min"] >= 0 and st["med"] <= 1000 else 0.35), "small whole numbers"
+        if cid in ("units_received", "units_ordered"):
+            if st["int"] < 0.97 or st["neg"] > 0.02:
+                return 0.05, None
+            return 0.6, "whole non-negative counts"
+        if cid == "trade_volume":
+            return (0.6 if st["int"] > 0.97 and st["med"] >= 1000 else 0.15), "large whole numbers (traded volume)" if st["med"] >= 1000 else None
+        if cid in ("forecast", "level_value"):
+            return 0.4, None
         if cid in ("stock_level", "reorder_level"):
             return (0.55 if st["int"] >= 0.9 and st["neg"] <= 0.05 else 0.15), "whole non-negative counts"
         if cid == "margin_pct":
@@ -163,6 +171,12 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
         if cid == "sentiment":
             f = frac(SENTIMENT_WORDS)
             return (0.9 if f >= 0.6 else 0.1), "values are positive / negative / neutral" if f >= 0.6 else None
+        if cid == "movement_type":
+            f = sum(1 for v in vals if MOVEMENT_WORDS.match(v.strip())) / max(len(vals), 1)
+            return (0.92 if f >= 0.5 else 0.05), "values are stock movements (IN, OUT, Sale, Damaged...)" if f >= 0.5 else None
+        if cid == "ticker":
+            f = sum(1 for v in vals if TICKER_VALUE.match(v)) / max(len(vals), 1)
+            return (0.5 if f >= 0.9 and 2 <= cs["nu"] <= 3000 else 0.05), "short upper-case codes like share symbols" if f >= 0.9 else None
         if cid == "yes_no":
             ok = vals and all(v.lower() in YES_NO_VALUES for v in vals)
             return (0.85 if ok else 0.0), "yes / no values" if ok else None
@@ -312,12 +326,37 @@ FILE_HINTS = {"snapshot": ("stock", "inventory", "warehouse stock", "on hand", "
               "transactions": ("orders", "sales", "transactions", "invoices", "bookings", "order items", "line items", "payments", "visits", "tickets"),
               "customer": ("customers", "customer master", "clients", "members", "patients", "accounts"),
               "product": ("products", "product catalog", "catalogue", "items", "sku master", "menu", "services"),
+              "purchase": ("purchase", "purchases", "purchase orders", "purchase order", "po", "procurement", "grn", "goods received", "inward", "supplier orders", "buying"),
               "supplier": ("suppliers", "vendors"), "employee": ("employees", "staff", "agents"), "site": ("stores", "branches", "outlets", "warehouses", "sites")}
 
 
 def file_name_hint(fname: str) -> dict[str, float]:
     base = re.sub(r"\.(csv|xlsx|xls)$", "", fname, flags=re.I)
     return {k: name_score(base, v)[0] for k, v in FILE_HINTS.items()}
+
+
+STOCK_NAME = ("stock", "on hand", "inventory", "closing stock", "stock level", "balance qty", "soh", "qoh", "available qty", "inventory level", "current stock", "in stock")
+
+
+def level_columns(df: pd.DataFrame, item_keys: list, concept_of: dict) -> list[str]:
+    """Number columns that behave like a running count for each item (today's value is close to yesterday's), or are named so.
+    Flows (units sold per day) jump around; levels (stock on hand, balance, price) move smoothly."""
+    nums = [c for c, k in concept_of.items() if c in df.columns and CONCEPTS[k].kind == "number" and c not in item_keys]
+    out = []
+    d = df[item_keys + ["_t"] + nums].dropna(subset=["_t"]).sort_values(item_keys + ["_t"])
+    for c in nums:
+        if name_score(c, STOCK_NAME)[0] >= 0.6 or concept_of[c] in ("stock_level", "price_level", "level_value"):
+            out.append(c); continue
+        v = pd.to_numeric(d[c], errors="coerce")
+        prev = v.groupby([d[k] for k in item_keys], observed=True).shift(1) if item_keys else v.shift(1)
+        ok = v.notna() & prev.notna()
+        if ok.sum() < 30 or v[ok].std() == 0:
+            continue
+        r = float(np.corrcoef(v[ok], prev[ok])[0, 1])
+        step = float(np.median(np.abs(v[ok] - prev[ok])) / max(np.median(np.abs(v[ok])), 1e-9))
+        if r >= 0.7 and step <= 0.25:
+            out.append(c)
+    return out
 
 
 def file_role(p, concept_of: dict[str, str], fhint: dict[str, float]) -> dict:
@@ -339,24 +378,101 @@ def file_role(p, concept_of: dict[str, str], fhint: dict[str, float]) -> dict:
             return {"role": "lines", "entity": "order line", "key": oid[0], "reason": f"several rows per {oid[0]}: the lines of each order"}
         return {"role": "reference", "entity": None, "reason": "no dates and no unique key"}
     t = df["_t"]
-    for c in keys:
-        if concept_of[c] == "order_id":
-            continue
-        g = df[[c]].assign(_d=t.dt.normalize()).dropna()
+    ledger = any(k == "movement_type" for k in concept_of.values())       # IN / OUT / Sale rows: a log of movements, never a snapshot
+    singles = [c for c in keys if concept_of[c] != "order_id"] if not ledger else []
+    extra = [c for c, k in concept_of.items() if c in df.columns and c not in singles and 2 <= df[c].nunique() <= 200 and
+             (k in ("site_id", "location") or (CONCEPTS[k].kind == "group" and k not in ("status", "movement_type", "yes_no", "reason", "sentiment")))]
+    for ks in [[c] for c in singles] + [[a, b] for a in singles for b in extra + singles if b != a]:
+        g = df[ks].assign(_d=t.dt.normalize()).dropna()
         if len(g) < 20:
             continue
-        per = g.groupby(c)["_d"].nunique()
+        per = g.groupby(ks)["_d"].nunique()
         nd = g["_d"].nunique()
         dup = g.duplicated().mean()
-        coverage = g.groupby("_d")[c].nunique().mean() / max(len(per), 1)      # share of all items seen on a typical date
+        coverage = g.groupby("_d").size().mean() / max(len(per), 1)      # share of all items seen on a typical date
         if per.median() >= 3 and dup <= 0.05 and nd <= 0.5 * len(g) and len(per) >= 3 and coverage >= 0.5:
-            score = 0.6 + 0.4 * fhint.get("snapshot", 0)
-            if score >= 0.6:
-                return {"role": "snapshot", "entity": CONCEPTS[concept_of[c]].entity, "key": c,
-                        "reason": f"the same {c} appears once per date across {nd} dates (a stock or status snapshot)"}
+            lev = level_columns(df, ks, concept_of)
+            if not lev and fhint.get("snapshot", 0) >= 0.6:   # the file is called 'inventory' / 'stock': its whole-number counts are the levels
+                lev = [c for c, k in concept_of.items() if c in df.columns and CONCEPTS[k].kind == "number" and c not in ks
+                       and (pd.to_numeric(df[c], errors="coerce").dropna() % 1 == 0).all()]
+            if not lev:
+                continue                                                # the same items every day, but nothing that behaves like a stock count
+            ent = CONCEPTS[concept_of[ks[0]]].entity
+            return {"role": "snapshot", "entity": ent, "key": ks[0], "item_keys": ks, "levels": lev,
+                    "reason": f"the same {' + '.join(ks)} appears once per date across {nd} dates, and {', '.join(lev[:2])} behaves like a running count (a stock snapshot)"}
+    if p.kind == "periodic" and any(concept_of[c] in ("customer_id", "product_id", "order_id") and df[c].nunique() >= 20 for c in keys):
+        return {"role": "transactions", "entity": "order", "reason": "dated rows naming customers or products: a log of events"}
     if p.kind == "periodic":
         return {"role": "periodic", "entity": None, "reason": "about one row per date (period totals)"}
     return {"role": "transactions", "entity": "order", "reason": "dated rows, one per event or line"}
+
+
+def _set(v: dict, cid: str, reason: str, conf: float = 0.7) -> None:
+    if v.get("source") in ("owner", "memory"):
+        return
+    v.update(concept=cid, label=CONCEPTS[cid].label, confidence=max(v["confidence"], conf), reasons=[reason] + v["reasons"][:2])
+
+
+TICKER_HEAD = re.compile(r"^[A-Z][A-Z0-9&\-]{0,9}$")
+PRICE_PART = re.compile(r"(open|high|low|close|adj|adjusted|ltp|vwap|price|nav)", re.I)
+
+
+def _stock_and_market_rules(df, p, cols: dict, nst: dict, role: dict, fhint: dict) -> None:
+    """Business-structure rules that names alone get wrong: purchases are costs, round 0-100 'discounts' are percentages,
+    share prices are levels (never added up), dates after the data ends are expiries or due dates."""
+    con = lambda c: cols[c]["concept"]
+    # 1. purchase files: what is paid is a cost, not a sale
+    has = {v["concept"] for v in cols.values()}
+    purchase = fhint.get("purchase", 0) >= 0.6 or ("supplier_id" in has and has & {"units_ordered", "units_received"} and "customer_id" not in has)
+    if purchase:
+        for c, v in cols.items():
+            if v["concept"] in ("unit_price",):
+                _set(v, "unit_cost", "a rate in a purchase file is what each unit costs you")
+            elif v["concept"] in ("revenue", "gross_revenue"):
+                _set(v, "cost", "an amount in a purchase file is money paid to suppliers")
+            elif v["concept"] == "quantity" and not (has & {"units_ordered", "units_received"}):
+                _set(v, "units_received", "units in a purchase file are units bought")
+    # 2. 'Discount' holding round numbers 0..100 (0, 5, 10, 15, 20): a percentage, not an amount
+    for c, v in cols.items():
+        st = nst.get(c)
+        if v["concept"] == "discount" and st and st["min"] >= 0 and st["max"] <= 100 and st["int"] >= 0.98 and st["nu"] <= 21:
+            vals = pd.to_numeric(df[c], errors="coerce").dropna()
+            if len(vals) and (vals % 5 == 0).mean() >= 0.9:
+                _set(v, "discount_pct", f"values are round percentages ({', '.join(str(int(x)) for x in sorted(vals.unique())[:5])}...), not amounts", 0.75)
+    # 3. market data: one row per date (or per date and symbol) with smooth price-like columns
+    nums = [c for c in cols if c in nst and nst[c]]
+    named_price = [c for c in nums if con(c) == "price_level"]
+    tickers = [c for c in nums if TICKER_HEAD.match(str(c)) and con(c) in ("number", "margin_pct", "percent", "revenue", "money_other", "unit_price")]
+    if p.time_col and (named_price or len(tickers) >= 2 or "trade_volume" in has or "ticker" in has):
+        keys = [c for c in cols if con(c) == "ticker"]
+        smooth = set(level_columns(df, keys, {c: cols[c]["concept"] for c in cols if c in df.columns})) if "_t" in df.columns else set()
+        ref_med = float(np.median([nst[c]["med"] for c in named_price])) if named_price else None    # bands and moving averages sit on the price's scale
+        for c in nums:
+            if con(c) in ("price_level", "trade_volume", "ticker"):
+                continue
+            parts = re.split(r"[^A-Za-z]+", str(c))
+            same_scale = bool(ref_med) and 0.5 <= (nst[c]["med"] / ref_med) <= 2 if nst.get(c) else False
+            if c in smooth and (PRICE_PART.search(c) or c in tickers or any(TICKER_HEAD.match(x) for x in parts if x) or same_scale):
+                _set(v := cols[c], "price_level", "moves smoothly from one date to the next, like a price (shown as levels, never added up)", 0.7)
+            elif re.search(r"volume", str(c), re.I):
+                _set(cols[c], "trade_volume", "traded volume")
+    elif p.time_col and p.kind == "periodic":
+        # one row per date, no names to go on: a smooth series is a level (balance, index, headcount), not a flow
+        smooth = set(level_columns(df, [], {c: cols[c]["concept"] for c in cols if c in df.columns})) if "_t" in df.columns else set()
+        for c in nums:
+            if c in smooth and con(c) in ("number", "margin_pct", "percent", "money_other") and cols[c]["confidence"] < 0.6:
+                _set(cols[c], "level_value", "moves smoothly from one date to the next: a level (like a balance), shown as latest/average, never added up", 0.6)
+    # 4. dates that are mostly after the data ends describe the row (expiry, due date), they are not events
+    for c, v in cols.items():
+        if CONCEPTS[v["concept"]].kind != "date" or c == p.time_col or v["concept"] != "event_date" or c not in df.columns:
+            continue
+        d = pd.to_datetime(df[c], errors="coerce").dropna()
+        end = df["_t"].max() if "_t" in df.columns and df["_t"].notna().any() else pd.Timestamp.now()
+        if len(d) and (d > end).mean() > 0.5:
+            if role.get("entity") == "product" or "product_id" in has:
+                _set(v, "expiry_date", "mostly later than the data ends: looks like an expiry date", 0.6)
+            else:
+                _set(v, "due_date", "mostly later than the data ends: looks like a due date", 0.55)
 
 
 # ---------------- main ----------------
@@ -450,12 +566,16 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
                    "alternatives": [(cid, round(s, 2)) for s, cid, _ in scored[1:4]], "source": "auto"}
     concept_of = {c: v["concept"] for c, v in cols.items()}
     role = file_role(p, concept_of, fhint)
-    # structure evidence: in a stock snapshot, counts are levels, not flows
+    # structure evidence: in a stock snapshot, the running counts are levels, not flows (units sold per day stay a flow)
+    levels = set(role.get("levels") or [])
     if role["role"] == "snapshot" or (role["role"] == "master" and fhint.get("snapshot", 0) >= 0.6):
         for c, v in cols.items():
-            if v["concept"] in ("quantity", "activity_count", "number", "points") and (nst.get(c) or {}).get("int", 0) >= 0.9:
+            if role["role"] == "snapshot" and c not in levels:
+                continue
+            if v["concept"] in ("quantity", "activity_count", "number", "points", "revenue", "money_other") and (nst.get(c) or {}).get("int", 0) >= 0.9:
                 v.update(concept="stock_level", label=CONCEPTS["stock_level"].label, confidence=max(v["confidence"], 0.7),
                          reasons=[f"a count in a {role['role']} file is a level (stock on hand), not something to add up over time"] + v["reasons"][:2])
+    _stock_and_market_rules(df, p, cols, nst, role, fhint)
     if role["role"] == "master" and role.get("entity") == "product":
         for c, v in cols.items():
             if v["concept"] == "cost":

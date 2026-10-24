@@ -56,19 +56,26 @@ def pick_frames(frames: dict[str, Frame], links: list) -> dict[str, Frame | None
     def rank(F):
         return (F.has("revenue"), F.name in parents_of_lines, F.has("_t") if F.has_time else False, len(F.df))
     sales = max(tx, key=rank) if tx else None
+    if sales is None:                                   # a daily stock panel that also records units sold
+        flows = [F for F in frames.values() if F.role == "snapshot" and (F.has("revenue") or F.has("quantity"))]
+        sales = max(flows, key=lambda F: len(F.df)) if flows else None
     lines = [F for F in frames.values() if F.role == "lines"]
     lines_f = max(lines, key=lambda F: (F.has("revenue") or F.has("quantity"), len(F.df))) if lines else None
     if sales is None and lines_f is not None and lines_f.has_time:
         sales = lines_f
     masters = {F.entity: F for F in frames.values() if F.role == "master" and F.entity}
     stock = [F for F in frames.values() if F.has("stock_level")]
+    buys = [F for F in frames.values() if F is not sales and (F.has("units_ordered") or F.has("_purchase_value")) and F.has_time]
     return {"sales": sales, "lines": lines_f, "customers": masters.get("customer"), "products": masters.get("product"),
-            "stock": max(stock, key=lambda F: (F.role == "snapshot", len(F.df))) if stock else None}
+            "stock": max(stock, key=lambda F: (F.role == "snapshot", len(F.df))) if stock else None,
+            "purchases": max(buys, key=lambda F: len(F.df)) if buys else None}
 
 
 def _complete_month_end(F: Frame):
     t = F.df["_t"].dropna()
     last = t.max()
+    if len(t) and (t.dt.day == 1).all() and (t == t.dt.normalize()).all() and t.nunique() >= 2:
+        return True, last + pd.offsets.MonthEnd(0)          # monthly figures dated on the 1st: each month is whole
     month_end = (last + pd.offsets.MonthEnd(0)).normalize()
     return last.normalize() >= month_end - pd.Timedelta(days=1), last
 
@@ -263,7 +270,8 @@ def customers_section(F: Frame, cur: str | None) -> list[dict]:
 def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> dict:
     pick = pick_frames(frames, links)
     S, L, C, P, K = pick["sales"], pick["lines"], pick["customers"], pick["products"], pick["stock"]
-    cur = next((F.currency for F in (S, L, K, P, C) if F is not None and F.currency), None)
+    B = pick.get("purchases")
+    cur = next((F.currency for F in (S, L, K, P, C, B) if F is not None and F.currency), None)
     tiles, sections = [], {}
 
     def add(area, chart):
@@ -273,13 +281,17 @@ def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> d
     used_metric_ids = set()
     # ---- headline tiles ----
     cands = []
-    for F in [x for x in (S, K) if x] + ([C] if C and not (S and S.has("customer_id")) else []) + ([P] if P else []):
+    for F in _uniq(S, K, B) + ([C] if C and not (S and S.has("customer_id")) else []) + ([P] if P else []):
         for m in available(F):
+            if m.area == "market" and _multi_ticker(F) and m.id != "volume":
+                continue                                   # one 'latest price' across several shares means nothing
+            if F is B and F is not S and m.id not in PURCHASE_TILES:
+                continue                                   # the purchase file adds buying numbers, not a second set of 'orders'
             cands.append((m.headline, F, m))
     if L and S and not S.has("quantity") and L.has("quantity"):
         cands += [(m.headline, L, m) for m in available(L) if m.id in ("units", "products_sold", "avg_selling_price")]
     seen, per_area = set(), {}
-    cap = {"sales": 6, "customers": 3, "operations": 3, "stock": 4, "service": 2, "costs": 2, "products": 2, "general": 2, "people": 1}
+    cap = {"sales": 6, "customers": 3, "operations": 3, "stock": 6, "service": 2, "costs": 2, "products": 2, "general": 2, "people": 1, "market": 6}
     for h, F, m in sorted(cands, key=lambda x: -x[0]):
         if h <= 0 or m.id in seen or per_area.get(m.area, 0) >= cap.get(m.area, 2):
             continue
@@ -292,6 +304,8 @@ def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> d
     if S:
         ms = {m.id: m for m in available(S)}
         main = ms.get("revenue") or ms.get("orders") or ms.get("transactions") or next(iter(ms.values()), None)
+        if main and main.area == "market":
+            main = None                                  # a price table: the Prices section shows it
         if main:
             for mid in ("revenue", "orders", "transactions", "aov", "profit", "margin", "units", "discount_rate"):
                 if mid in ms:
@@ -347,6 +361,17 @@ def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> d
         # generic numbers
         for m in generic_metrics(S, set())[:8]:
             add("other", time_chart(S, m, cur if m.money else None))
+    # ---- market prices / levels ----
+    if S and (S.has("price_level") or S.has("level_value")):
+        ms = {m.id: m for m in available(S)}
+        for mid in ("price_last", "level_last", "volume", "daily_return_sd"):
+            if mid in ms and not (_multi_ticker(S) and mid != "volume"):
+                add("market", time_chart(S, ms[mid], cur if ms[mid].money else None,
+                                         {"price_last": "Price over time (last price of each period)", "level_last": "Level over time (last value of each period)"}.get(mid)))
+        for c in S.groups.get("ticker", [])[:1]:
+            for mid in ("price_last", "volume"):
+                if mid in ms:
+                    add("market", bar_chart(S, ms[mid], c, cur if ms[mid].money else None))
     # ---- products (prefer line items) ----
     PF = L if (L and L.has("product_id")) else (S if S and S.has("product_id") else None)
     if PF:
@@ -384,13 +409,54 @@ def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> d
                 add("stock", bar_chart(K, main, c, cur if main.money else None))
             label_col = (K.groups.get("name_label") or [None])[0]
             add("stock", ranking(K, "product_id", [main] + [m for m in (km.get("stock_units"),) if m and m is not main], cur, label_col, "Largest stock holdings"))
+    # stock moving in and out (a movement ledger or a daily panel)
+    for F in _uniq(S, K):
+        fm = {m.id: m for m in available(F)}
+        for mid in ("units_received", "units_lost", "loss_rate"):
+            if mid in fm:
+                add("stock", time_chart(F, fm[mid], None))
+        if "loss_rate" in fm:
+            for c in F.groups.get("site_id", [])[:1] + F.groups.get("product_group", [])[:1]:
+                add("stock", bar_chart(F, fm["loss_rate"], c, None))
+        if "forecast_error" in fm:
+            add("sales", time_chart(F, fm["forecast_error"], None))
+            for c in F.groups.get("product_group", [])[:1] + F.groups.get("location", [])[:1]:
+                add("sales", bar_chart(F, fm["forecast_error"], c, None))
+        if "price_vs_competitor" in fm:
+            for c in F.groups.get("product_group", [])[:1]:
+                add("products", bar_chart(F, fm["price_vs_competitor"], c, None))
+    # ---- purchasing ----
+    if B:
+        bm = {m.id: m for m in available(B)}
+        for mid in ("purchase_value", "units_ordered", "fill_rate", "avg_duration", "on_time_rate", "avg_late"):
+            if mid in bm:
+                add("purchasing", time_chart(B, bm[mid], cur if bm[mid].money else None))
+        for c in B.groups.get("supplier_id", [])[:1]:
+            for mid in ("avg_late", "avg_duration", "on_time_rate", "fill_rate", "purchase_value"):
+                if mid in bm:
+                    add("purchasing", bar_chart(B, bm[mid], c, cur if bm[mid].money else None))
     return {"files": describe_files(frames, file_infos), "currency": cur,
             "currencies": (S.currencies if S else []), "tiles": tiles,
             "sections": [{"area": a, "title": _area_title(a), "charts": sections[a]} for a in
-                         ("sales", "products", "customers", "operations", "service", "stock", "costs", "other") if sections.get(a)],
+                         ("market", "sales", "products", "customers", "operations", "service", "stock", "purchasing", "costs", "other") if sections.get(a)],
             "sources": {k: (v.name if v else None) for k, v in pick.items()}}
+
+
+def _multi_ticker(F) -> bool:
+    return any(c in F.df.columns and F.df[c].nunique() > 1 for c in F.groups.get("ticker", []))
+
+
+PURCHASE_TILES = {"purchase_value", "units_ordered", "fill_rate", "avg_duration", "on_time_rate", "avg_late", "units_received"}
+
+
+def _uniq(*fs):
+    out = []
+    for f in fs:
+        if f is not None and all(f is not g for g in out):
+            out.append(f)
+    return out
 
 
 def _area_title(a):
     return {"sales": "Sales", "products": "Products", "customers": "Customers", "operations": "Operations", "service": "Service and satisfaction",
-            "stock": "Stock", "costs": "Costs and margin", "other": "Other numbers"}[a]
+            "stock": "Stock", "costs": "Costs and margin", "other": "Other numbers", "market": "Prices", "purchasing": "Purchasing and suppliers"}[a]

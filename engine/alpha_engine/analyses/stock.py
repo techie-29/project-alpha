@@ -13,8 +13,15 @@ def run(K, sales_frames: list, currency: str | None) -> list[dict]:
     k = K.df.dropna(subset=["product_id"])
     if K.has_time:
         k = k.sort_values("_t")
-    last = k.groupby("product_id").tail(1).set_index("product_id")
-    asof = k["_t"].max() if K.has_time else None
+    keys = [x for x in (K.item_keys or ["product_id"]) if x in k.columns] or ["product_id"]
+    last_rows = k.groupby(keys).tail(1)
+    if len(keys) > 1:                               # the same product counted in several stores: add the stores up
+        agg = {c: ("sum" if c in ("stock_level", "reorder_level") else ("min" if c == "_expiry" else "first")) for c in last_rows.columns if c not in keys}
+        last = last_rows.groupby("product_id").agg(agg)
+    else:
+        last = last_rows.set_index("product_id")
+    ends = [F.df["_t"].max() for F in sales_frames if F is not None and F.has_time] + ([k["_t"].max()] if K.has_time else [])
+    asof = max(ends) if ends else pd.Timestamp.now().normalize()          # the last date anywhere in the data
     stock_ids = set(k["product_id"].astype(str).unique())
     def overlaps(F):
         ids = set(F.df["product_id"].dropna().astype(str).unique())
@@ -35,6 +42,7 @@ def run(K, sales_frames: list, currency: str | None) -> list[dict]:
             if len(lowr):
                 out.append(insight("low_cover", "stock", f"{len(lowr):,} items are at or below their reorder point", "Their latest count is at or below the reorder level in the file.",
                                    polarity="bad", actionable=True, numbers={"items": int(len(lowr))}, source=K.name, tags=["stock"], suggestion="Place re-orders for these items."))
+        out += _expiry(K, last, asof, None, currency)
         neg = last[last.stock_level < 0]
         if len(neg):
             out.append(insight("extreme_values", "data", f"{len(neg):,} items show a negative stock count", "A count below zero is usually a counting or entry mistake.", polarity="neutral", actionable=True,
@@ -79,6 +87,7 @@ def run(K, sales_frames: list, currency: str | None) -> list[dict]:
                            polarity="bad", impact=val, impact_unit=currency or "", actionable=True, numbers={"items": int(len(dead)), "never_sold": never},
                            chart=_table("No sales in 90 days", dead, nm, currency), source=K.name, tags=["stock", "dead"],
                            suggestion="Consider a clearance price, bundling, or stopping re-orders for these items."))
+    out += _expiry(K, last, asof, t, currency)
     # 4. overstock: more than a year of cover on sellers
     over = t[(t.daily > 0) & (t.cover > 365)]
     if len(over) and cost is not None:
@@ -88,6 +97,34 @@ def run(K, sales_frames: list, currency: str | None) -> list[dict]:
                            actionable=True, numbers={"items": int(len(over))}, chart=_table("Over a year of cover", over.sort_values("cover", ascending=False), nm, currency),
                            source=K.name, tags=["stock", "overstock"]))
     return out
+
+
+def _expiry(K, last, asof, t, currency, window: int = 30) -> list[dict]:
+    """Stock that expires soon (or already has), and how much of it will not sell before then at the current pace."""
+    if "_expiry" not in last.columns or asof is None:
+        return []
+    e = pd.to_datetime(last["_expiry"], errors="coerce")
+    days = (e - asof).dt.days
+    have = last.stock_level.fillna(0) > 0
+    soon = have & days.notna() & (days <= window)
+    if not soon.any():
+        return []
+    s = last[soon].assign(days_left=days[soon])
+    daily = t["daily"].reindex(s.index).fillna(0) if t is not None else pd.Series(0.0, index=s.index)
+    s["unsold"] = (s.stock_level - daily * s.days_left.clip(lower=0)).clip(lower=0)
+    cost = s["unit_cost"] if "unit_cost" in s.columns else None
+    val = float((s.unsold * cost).sum()) if cost is not None else None
+    expired = int((s.days_left < 0).sum())
+    label = (K.groups.get("name_label") or [None])[0]
+    rows = [{"key": str(i), "name": (str(r[label]) if label and label in r and pd.notna(r[label]) else None), "Stock": float(r.stock_level),
+             "Days to expiry": int(r.days_left), "Likely unsold": float(round(r.unsold, 1))} for i, r in s.sort_values("days_left").head(25).iterrows()]
+    title = f"{int(soon.sum()):,} products have stock expiring within {window} days" + (f" ({expired} already expired)" if expired else "")
+    detail = (f"Counted against {asof:%d %b %Y}, the last date in your data. At the current selling pace about {s.unsold.sum():,.0f} units will not sell before they expire"
+              + (f", worth {fmt_value(val, 'money', currency or '')} at cost." if val else "."))
+    return [insight("expiry", "stock", title, detail, polarity="bad", impact=val, impact_unit=currency or "", actionable=True,
+                    numbers={"items": int(soon.sum()), "expired": expired, "units_at_risk": float(s.unsold.sum())},
+                    chart={"type": "table", "title": "Expiring soon", "columns": ["Stock", "Days to expiry", "Likely unsold"], "fmts": {}, "rows": rows},
+                    source=K.name, tags=["stock", "expiry"], suggestion="Sell these first (front of shelf, discount, bundle) or return them to the supplier if the terms allow.")]
 
 
 def _table(title, t, nm, currency):

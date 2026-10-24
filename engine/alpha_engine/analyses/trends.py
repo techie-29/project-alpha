@@ -82,7 +82,10 @@ def _seasonality(F, m, currency):
     labels, vals = series(F, m, "month", currency if m.money else None)
     labels, y = _complete_months(F, labels, vals)
     idx = pd.to_datetime(pd.Series(labels), format="%b %Y")
-    df = pd.DataFrame({"y": y, "year": idx.dt.year.values, "month": idx.dt.month.values}).dropna()
+    df = pd.DataFrame({"y": y, "year": idx.dt.year.values, "month": idx.dt.month.values, "k": np.arange(len(labels))}).dropna()
+    if len(df) and df.groupby("year").size().ge(10).sum() < 2:
+        # business years that do not start in January (April-March): use 12-month blocks from the first complete month
+        df["year"] = (df.k - df.k.min()) // 12
     full_years = df.groupby("year").size()
     years = full_years[full_years >= 10].index
     df = df[df.year.isin(years)]

@@ -63,7 +63,7 @@ def test_every_decision_has_reasons_and_confidence():
 def test_ambiguous_dates_are_flagged_not_silent():
     d = pd.DataFrame({"when_date": ["04/05/2026", "03/06/2026", "01/02/2026"] * 40, "_row": range(2, 122)})
     i = profile_columns(d)["when_date"]
-    assert i["role"] == "time" and i["date_order"] == "ambiguous->day-first" and i["needs_confirmation"]
+    assert i["role"] == "time" and i["date_order"] == "day-first" and not i["date_certain"] and i["needs_confirmation"]
 
 
 def test_owner_confirmation_wins():

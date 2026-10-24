@@ -53,6 +53,14 @@ export const TYPE_LABELS = { measure: "Number", category: "Group", id: "Identifi
 export const ROLE_TEXT = { transactions: "Activity log", lines: "Line items", master: "Master list", snapshot: "Snapshot over time", periodic: "Period totals", reference: "Reference table", summary: "Summary (not analysed)" };
 export const CLAIM_CLASS = { Calculated: "calc", "Supported by evidence": "supported", "Possible (early sign)": "early" };
 
-export function buildConfirmations({ concepts = {}, links = {}, types = {}, rowOrder = {} }) {
-  return { concepts, links, columns: types, rows_in_time_order: rowOrder };
+export function buildConfirmations({ concepts = {}, links = {}, types = {}, rowOrder = {}, dateOrder = {}, timeCol = {} }) {
+  const out = { concepts, links, columns: types, rows_in_time_order: rowOrder };
+  if (Object.keys(dateOrder).length) out.date_order = dateOrder;     // { file: { column: "day-first" | "month-first" } }
+  if (Object.keys(timeCol).length) out.time_col = timeCol;           // { file: column used as the timeline }
+  return out;
+}
+
+export function dateExample(order, example) {
+  if (!example) return "";
+  return example.replace("->", "→");
 }

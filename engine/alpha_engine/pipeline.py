@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from .llm import Provider, NullProvider
 from .understand.reader import read_any
+from .understand.dates import unpivot_periods, unpivot_tickers
 from .understand.prepare import prepare, Prepared
 from .understand.ai_review import review_columns
 from .link.linker import find_links, apply_link_confirmations, build_views
@@ -32,6 +33,8 @@ def _file_conf(confirmations: dict, name: str) -> dict:
             c[col] = v
     if (confirmations.get("time_col") or {}).get(name):
         c["__time_col__"] = confirmations["time_col"][name]
+    for col, order in ((confirmations.get("date_order") or {}).get(name) or {}).items():
+        c[f"__date_order__::{col}"] = order
     if (confirmations.get("rows_in_time_order") or {}).get(name):
         c["__rows_in_time_order__"] = True
     return c
@@ -45,6 +48,11 @@ def _load(spec: dict, confirmations: dict, provider: Provider) -> Prepared:
     if key in _CACHE:
         return _CACHE[key]
     df, rnotes = read_any(str(path))
+    df, wide_note = unpivot_periods(df, spec["name"])
+    if not wide_note:
+        df, wide_note = unpivot_tickers(df)
+    if wide_note:
+        rnotes = rnotes + [wide_note]
     p = prepare(df, spec["name"], fc)
     p.notes = rnotes + p.notes
     p.ai_status = review_columns(p.df, p.roles, provider) if p.kind != "summary" else {"status": "skipped"}   # type: ignore[attr-defined]
@@ -82,7 +90,13 @@ def _reading(files, tables, links, model) -> dict:
                          "confidence": v.get("confidence"), "reasons": v.get("reasons", [])[:3], "alternatives": v.get("alternatives", [])[:3],
                          "needs_confirmation": bool(v.get("needs_confirmation")) or bool(i.get("needs_confirmation") and i["role"] not in ("empty", "constant")),
                          "source": v.get("source", "auto"), "unique": i.get("unique")})
+            if i["role"] == "time":
+                cols[-1]["date"] = {"order": i.get("date_order"), "certain": bool(i.get("date_certain", True)), "example": i.get("date_example"),
+                                    "reason": i.get("date_reason"), "from": i.get("date_min"), "to": i.get("date_max"), "grain": i.get("date_grain"),
+                                    "styles": i.get("date_shapes"), "by_owner": i.get("date_source") == "owner"}
+        dcols = [c for c, i in p.roles.items() if i["role"] == "time" and not c.startswith("__")]
         out.append({"id": s.get("id"), "name": s["name"], "rows": int(len(p.df)), "kind": p.kind, "role": fm["file"].get("role"), "entity": fm["file"].get("entity"),
+                    "date_columns": dcols,
                     "role_reason": fm["file"].get("reason"), "time_col": p.time_col, "columns": cols, "identities": [i["text"] for i in fm.get("identities", [])][:8],
                     "notes": p.notes, "warnings": p.warnings, "ai": getattr(p, "ai_status", None)})
     return {"files": out, "links": [l.public() for l in links], "entities": model["entities"], "ai_review": model.get("ai_review"),

@@ -19,6 +19,12 @@ A business-intelligence website for any business. Upload raw CSV or Excel files 
 
 Privacy: the AI helper is sent column names, statistics, finding summaries and aggregated results. Never raw rows, personal columns or free text.
 
+### Dates and column meanings
+
+- Dates: every common style is read, even mixed in one column (31/12/2024, 2024-12-31, 31-Dec-24, Excel day numbers, 20241231, timestamps with time zones, Jan-2024, Q1 2024, 2024-W03, FY 2024-25). Day-first vs month-first is decided from evidence (a day above 12, other styles in the column, row order, sibling date columns, the currency) and the owner can flip it on "How I read your files". Expiry, due and "added on" dates are kept as row details, not used as the timeline; the owner can pick the timeline.
+- Wide tables are turned into rows: month columns (Apr-2024, May-2024 ...) and share-price columns (MSFT, IBM ...).
+- Stock businesses: movement ledgers (IN / OUT / Sale / Damaged), daily store x product panels, purchase orders (lead time, days late, fill rate), expiry risk, forecast error, price vs competitors. Share prices are levels (latest, high, low, deepest fall, swings), never added up.
+
 ## 1. Prepare MySQL
 
 Fresh database: run `backend/database/schema.sql` in MySQL Workbench.

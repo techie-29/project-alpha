@@ -3,14 +3,16 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from .common import insight, perm_group_test, apply_bh, codes_of, fmt_value, rows_sample, MIN_GROUP_ROWS, ratio_z, leaks
-from .targets import targets, group_columns
+from .targets import targets, group_columns, product_side
 
 
 def material(t, a, b) -> bool:
     if not (np.isfinite(a) and np.isfinite(b)):
         return False
     if t.fmt == "pct":
-        return abs(a - b) >= 0.02 and (b == 0 or abs(a - b) / max(abs(b), 1e-9) >= 0.2)
+        rel = abs(a - b) / max(abs(b), 1e-9) if b else np.inf
+        # 2 points and 20% apart, or - for rare events like damage (1%) - at least 1.5x apart and 0.2 points
+        return (abs(a - b) >= 0.02 and rel >= 0.2) or (rel >= 0.5 and abs(a - b) >= 0.002)
     if t.fmt in ("rating",):
         return abs(a - b) >= 0.15
     if t.fmt == "days":
@@ -32,6 +34,7 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
     status_cols = set(F.groups.get("status", []))
     flag_src = {fc: c for c, v, fc in F.status_flags}
     n_tests = 0
+    single_item = "product_id" in F.df.columns and ("order_id" not in F.df.columns or F.df["order_id"].nunique() >= 0.9 * F.df["order_id"].notna().sum())
     for t in targets(F):
         m, num, den = t.arrays(F, currency)
         if m.sum() < 100:
@@ -39,6 +42,8 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
         for col in cols:
             if n_tests >= max_tests:
                 break
+            if t.id in ("aov", "avg_sale") and single_item and product_side(F, col):
+                continue                                   # one item per row: the value of a row is just that item's price
             if t.kind == "rate" and (col == flag_src.get(t.num) or col in status_cols):
                 continue                                   # 'cancel rate by status' says nothing new
             if t.kind == "rate" and leaks(num[m], F.df[col][m]):

@@ -18,6 +18,9 @@ def run(view, frame=None, limit: int = 25) -> tuple[list[dict], dict]:
         view = copy.copy(view)
         key_cols = {frame.canon.get(k) for k in KEY_CANON if frame.canon.get(k)}
         view.measures = [m for m in view.measures if (m.col is None or m.col in key_cols) and (m.currency is None or m.currency == frame.currency)]
+        # watch slices a person can act on: up to 30 groups (warehouses, categories, suppliers), not every single item code
+        moves = set(frame.groups.get("movement_type", []))
+        view.slices = [c for c in view.slices if c in view.df.columns and view.df[c].nunique() <= 30 and c not in moves]
     sr = scan_view(view)
     if sr is None:
         return [], {}

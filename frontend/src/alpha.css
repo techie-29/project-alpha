@@ -67,3 +67,5 @@
 .al-columns{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}.al-plan{border-top-color:#9085e9}
 @media (max-width:820px){.al-chartgrid{grid-template-columns:1fr}.al-q,.al-a{max-width:100%}}
 .al-partlabel{margin:0 0 4px 2px;font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.al-date{display:flex;flex-direction:column;gap:4px;margin-top:6px;color:var(--text)}.al-date code{font-size:11px}
+.al-inline{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:4px 0}.al-inline select{font-size:12px;padding:3px 6px}

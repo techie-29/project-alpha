@@ -11,12 +11,13 @@ from __future__ import annotations
 import re
 import numpy as np
 import pandas as pd
+from .dates import read_dates, DATE_HEAD as DATE_HEAD_WIDE
 
 # ---------- header hints (weak evidence) ----------
 STRONG_ID = re.compile(r"(zip|postal|pincode|pin_code|phone|mobile|uuid|guid|sku|barcode|ssn|aadhaar|passport)", re.I)
 ID_TOKEN = re.compile(r"(^|[_\s\-])(id|code|no|num|number|key|ref|reference)($|[_\s\-])|[a-z]Id$", re.I)
 MONEY = re.compile(r"(sales|revenue|amount|price|cost|profit|total|fee|tax|discount|value|salary|spend|income|expense|charge|payment|balance|fare)", re.I)
-COUNT = re.compile(r"(qty|quantity|units|count|number_of|items|points|visits|orders|views|clicks|sessions|days)", re.I)
+COUNT = re.compile(r"(qty|quantity|units|count|number_of|items|points|visits|orders|views|clicks|sessions|days|volume|shares|traded|trades|footfall)", re.I)
 PCT = re.compile(r"(pct|percent|percentage|margin|rate|ratio|share)", re.I)
 RATING = re.compile(r"(rating|score|stars|grade|rank)", re.I)
 DATE_HEAD = re.compile(r"(date|timestamp|created|updated|datetime)", re.I)
@@ -28,7 +29,7 @@ DATE_SHAPE = re.compile(r"(?:\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4})|(?:[A-Za-z]{3,9}\.
 TIME_OF_DAY = re.compile(r"^\s*\d{1,2}:\d{2}(:\d{2})?(\s?[APap][Mm])?\s*$")
 ID_PATTERN = re.compile(r"^[A-Za-z]{1,8}[-_ ]?\d{3,}$")
 CUR = re.compile(r"[\$€£₹¥,\s%]")
-PLAUSIBLE = (pd.Timestamp("1990-01-01"), pd.Timestamp.now() + pd.DateOffset(years=1))
+PLAUSIBLE = (pd.Timestamp("1900-01-01"), pd.Timestamp("2100-12-31"))      # any real calendar date; the time axis has its own, stricter check
 
 
 def _is_text(s: pd.Series) -> bool:
@@ -73,36 +74,17 @@ def clean_numeric(s: pd.Series) -> pd.Series | None:
 
 
 def infer_date_order(sample: pd.Series) -> str:
-    """'iso' | 'day-first' | 'month-first' | 'ambiguous->day-first' (the report states which was assumed)."""
-    vals = sample.dropna().astype(str).head(5000)
-    if vals.str.match(r"^\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}").mean() > 0.9:
-        return "iso"
-    parts = vals.str.extract(r"^\s*(\d{1,2})[-/.](\d{1,2})[-/.]\d{2,4}").dropna().astype(int)
-    if len(parts):
-        if (parts[0] > 12).any():
-            return "day-first"
-        if (parts[1] > 12).any():
-            return "month-first"
-    return "ambiguous->day-first"
+    """Kept for older callers: the order the new reader would choose."""
+    r = read_dates(sample, "date", force=True)
+    return r.order if r is not None else "iso"
 
 
-def parse_dates(s: pd.Series, order: str) -> pd.Series:
+def parse_dates(s: pd.Series, order: str = "native") -> pd.Series:
+    """Dates of a column (already-parsed columns pass straight through)."""
     if _is_dt(s):
-        return s
-    if order == "excel":
-        return pd.to_datetime(pd.to_numeric(s, errors="coerce"), unit="D", origin="1899-12-30", errors="coerce")
-    if order in ("unix_s", "unix_ms"):
-        return pd.to_datetime(pd.to_numeric(s, errors="coerce"), unit="s" if order == "unix_s" else "ms", errors="coerce")
-    return pd.to_datetime(s, errors="coerce", dayfirst=(order not in ("iso", "month-first")), format="mixed")
-
-
-def _date_shaped(s: pd.Series) -> bool:
-    if _is_dt(s):
-        return True
-    if not _is_text(s):
-        return False
-    v = s.dropna().astype(str).head(500)
-    return len(v) > 0 and v.str.contains(DATE_SHAPE).mean() > 0.9
+        return s.dt.tz_localize(None) if getattr(s.dt, "tz", None) is not None else s
+    r = read_dates(s, "date", force=True, order=order if order in ("day-first", "month-first") else None)
+    return r.parsed if r is not None else pd.to_datetime(s, errors="coerce")
 
 
 def _plausible(parsed: pd.Series) -> bool:
@@ -149,22 +131,20 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
         reasons.append("Values look like clock times (hh:mm:ss), not calendar dates.")
         return info
 
-    # --- calendar time ---
-    if _date_shaped(s):
-        order = infer_date_order(s) if _is_text(s) else "native"
-        parsed = parse_dates(s, order)
-        rate = float(parsed.notna().sum() / nn)
-        if rate > 0.9 and _plausible(parsed):
-            info.update(role="time", date_order=order, parse_rate=round(rate, 4), confidence=0.95)
-            if order == "ambiguous->day-first":
-                info["confidence"] = 0.6
-                reasons.append("Day and month could be swapped; assumed day-first.")
-            reasons.append(f"{rate:.0%} of values parse as dates ({order}).")
-            return info
-        if rate > 0.5:
-            info.update(role="time", date_order=order, parse_rate=round(rate, 4), confidence=0.45)
-            reasons.append(f"Only {rate:.0%} of values parse as dates; the rest need checking.")
-            return info
+    # --- calendar time (every common way of writing a date, mixed styles allowed) ---
+    dr = read_dates(s, name)
+    if dr is not None and dr.rate > 0.5 and _plausible(dr.parsed):
+        conf = (0.95 if dr.certain else 0.6) if dr.rate > 0.9 else 0.45
+        info.update(role="time", date_order=dr.order, parse_rate=round(dr.rate, 4), confidence=conf, date_grain=dr.grain,
+                    date_shapes=dr.shapes, date_example=dr.example, date_certain=dr.certain, date_reason=dr.reason, date_junk=dr.junk)
+        info["_parsed"] = dr.parsed
+        if dr.reason:
+            reasons.append(dr.reason + ".")
+        if dr.rate <= 0.9:
+            reasons.append(f"Only {dr.rate:.0%} of values could be read as dates; the rest need checking.")
+        elif not dr.certain:
+            reasons.append("Day and month could be swapped; please check the example.")
+        return info
 
     num = s if (pd.api.types.is_numeric_dtype(s) and s.dtype != bool) else clean_numeric(s)
     if num is not None and getattr(num, "attrs", None):
@@ -173,15 +153,6 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
         if num.attrs.get("percent_text"):
             info["percent_text"] = True
     is_bool = _bool_like(s)
-
-    # --- numeric-encoded dates (Excel serials / unix timestamps), only with a date-ish header ---
-    if num is not None and DATE_HEAD.search(name) and (num.dropna() % 1 == 0).all():
-        lo, hi = float(num.min()), float(num.max())
-        for order, a, b in (("excel", 20000, 70000), ("unix_s", 3e8, 3e9), ("unix_ms", 3e11, 3e12)):
-            if a <= lo and hi <= b and _plausible(parse_dates(num, order)):
-                info.update(role="time", date_order=order, confidence=0.6)
-                reasons.append(f"Numbers fit {order} dates and the header says date; please confirm.")
-                return info
 
     if is_bool and nu <= 2:
         info.update(role="flag", confidence=0.9 if (s.dtype == bool or BOOL_HEAD.search(name)) else 0.65)
@@ -254,10 +225,37 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
 def profile_columns(df: pd.DataFrame) -> dict[str, dict]:
     n = len(df)
     roles = {c: classify_column(c, df[c], n) for c in df.columns if c != "_row"}
+    harmonise_date_order(df, roles)
     enforce_rules(df, roles)
     for info in roles.values():
         info["needs_confirmation"] = bool(info["confidence"] < 0.7 or info.get("vetoed"))
     return roles
+
+
+def harmonise_date_order(df: pd.DataFrame, roles: dict[str, dict], prefer: str | None = None) -> None:
+    """A column whose day/month order was a guess follows a sibling column that settled it, else the file's currency
+    (₹ £ € -> day-first, $ -> month-first), else the owner's earlier choice (prefer)."""
+    settled = [i["date_order"] for i in roles.values() if i.get("role") == "time" and i.get("date_certain") and i.get("date_order") in ("day-first", "month-first")]
+    sym = [i.get("currency_symbol") for i in roles.values() if i.get("currency_symbol")]
+    hint, why = None, ""
+    if settled:
+        hint = max(set(settled), key=settled.count); why = "another date column in this file settles it"
+    elif prefer:
+        hint, why = prefer, "followed your other files"
+    elif sym:
+        hint = "month-first" if sym[0] == "$" else "day-first"; why = f"amounts are in {sym[0]}, where dates are usually written {'month' if sym[0] == '$' else 'day'}-first"
+    if not hint:
+        return
+    for c, i in roles.items():
+        if i.get("role") == "time" and not i.get("date_certain") and i.get("date_order") in ("day-first", "month-first"):
+            if i["date_order"] != hint:
+                r = read_dates(df[c], c, order=hint, force=True)
+                i.update(date_order=hint, date_example=r.example, _parsed=r.parsed)
+            i["date_reason"] = f"{why}; read {hint}"
+            i["reasons"] = [x for x in i["reasons"] if "swapped" not in x] + [f"Day/month order: {why}; read {hint}."]
+            if settled:                                  # a sibling column proved it: as good as certain
+                i["date_certain"] = True
+                i["confidence"] = max(i["confidence"], 0.85)
 
 
 # ---------- hard safety rules (veto the decision, never silently) ----------
@@ -279,10 +277,11 @@ def enforce_rules(df: pd.DataFrame, roles: dict[str, dict]) -> list[str]:
                 info.update(role="id", vetoed="measure rule: header is a code", confidence=0.5)
                 log.append(f"{c}: measure -> id (code header).")
         elif role == "time":
-            order = info.get("date_order", "native")
-            parsed = parse_dates(df[c], order) if order != "native" else df[c]
+            parsed = info.get("_parsed")
+            parsed = parsed if parsed is not None else parse_dates(df[c], info.get("date_order", "native"))
             if not _plausible(parsed):
-                info.update(role="text", vetoed="time rule: dates outside 1990..next year", confidence=0.3)
+                info.pop("_parsed", None)
+                info.update(role="text", vetoed="time rule: dates outside 1900..2100", confidence=0.3)
                 log.append(f"{c}: time -> text (implausible date range).")
     return log
 

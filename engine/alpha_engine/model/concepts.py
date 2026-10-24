@@ -43,7 +43,18 @@ CONCEPTS: dict[str, Concept] = {c.id: c for c in [
     _c("unit_cost", "Unit cost", "number", "mean", True, 0, ("unit cost", "cost price", "purchase price", "buy price", "cost per unit", "standard cost"), "products"),
     _c("money_other", "Other amount", "number", "sum", True, 0, ("value", "balance", "payment", "paid", "charge", "credit", "debit", "lifetime value", "clv", "ltv"), "general"),
     # ---- quantities, levels ----
-    _c("quantity", "Units", "number", "sum", False, +1, ("qty", "quantity", "units", "units sold", "pieces", "pcs", "volume", "items", "cantidad", "menge", "quantite", "nos", "sold qty"), "sales"),
+    _c("quantity", "Units", "number", "sum", False, +1, ("qty", "quantity", "units", "units sold", "pieces", "pcs", "items", "cantidad", "menge", "quantite", "nos", "sold qty", "qty sold", "sales qty", "issued qty"), "sales"),
+    _c("units_received", "Units received", "number", "sum", False, 0, ("qty received", "received qty", "units received", "quantity received", "grn qty", "inward qty", "inward", "stock in",
+       "receipt qty", "qty in", "purchased qty", "qty purchased", "goods received"), "stock"),
+    _c("units_ordered", "Units ordered", "number", "sum", False, 0, ("qty ordered", "ordered qty", "units ordered", "order qty", "po qty", "purchase qty", "quantity ordered", "requested qty",
+       "indent qty", "reorder qty", "replenishment qty"), "stock"),
+    _c("forecast", "Forecast / plan", "number", "sum", False, 0, ("forecast", "demand forecast", "forecasted", "predicted", "prediction", "projected", "projection", "target", "budget", "plan",
+       "planned", "expected sales", "estimate", "estimated sales", "quota"), "general"),
+    _c("competitor_price", "Competitor price", "number", "mean", True, 0, ("competitor price", "competitor pricing", "competition price", "rival price", "market price", "competitor rate"), "products"),
+    _c("price_level", "Share price", "number", "level", True, 0, ("close", "closing price", "close price", "adj close", "adjusted close", "adjusted", "open", "open price", "high", "low", "ltp",
+       "last price", "last traded price", "vwap", "nav", "share price", "stock price", "price close", "prev close"), "market"),
+    _c("trade_volume", "Volume traded", "number", "sum", False, 0, ("volume", "shares traded", "traded volume", "trade volume", "traded qty", "no of trades", "trades", "deliverable qty"), "market"),
+    _c("level_value", "Level / balance", "number", "level", False, 0, ("balance", "closing balance", "index", "level"), "general"),
     _c("stock_level", "Stock on hand", "number", "level", False, 0, ("stock", "on hand", "qty on hand", "quantity on hand", "inventory", "stock level", "closing stock", "available", "in stock",
        "available qty", "balance qty", "current stock", "soh", "stock qty", "qty oh", "qoh", "existencias", "bestand", "lager", "inventory level"), "stock"),
     _c("reorder_level", "Reorder level", "number", "level", False, 0, ("reorder level", "reorder point", "min stock", "minimum stock", "safety stock", "par level", "rop"), "stock"),
@@ -55,7 +66,8 @@ CONCEPTS: dict[str, Concept] = {c.id: c for c in [
     _c("age", "Age", "number", "mean", False, 0, ("age", "customer age", "years old"), "customers"),
     _c("points", "Points", "number", "sum", False, 0, ("points", "loyalty points", "reward points", "points earned", "points redeemed"), "customers"),
     _c("activity_count", "Activity count", "number", "sum", False, +1, ("visits", "sessions", "clicks", "views", "calls", "tickets", "impressions", "leads", "signups", "admissions",
-       "appointments", "footfall", "orders count", "transactions", "bookings", "order count"), "general"),
+       "appointments", "footfall", "orders count", "transactions", "bookings", "order count", "bills", "no of bills", "bill count", "invoices count",
+       "no of invoices", "receipts count", "customers served", "walk ins", "covers"), "general"),
     _c("discount_pct", "Discount %", "number", "mean", False, -1, ("discount percentage", "discount pct", "discount rate", "discount percent", "disc pct"), "sales"),
     _c("percent", "Percentage", "number", "mean", False, 0, ("percent", "pct", "ratio", "share", "percentage", "rate pct"), "general"),
     _c("number", "Number", "number", "mean", False, 0, (), "general"),
@@ -81,11 +93,19 @@ CONCEPTS: dict[str, Concept] = {c.id: c for c in [
     _c("name_label", "Name", "group", synonyms=("product name", "item name", "campaign name", "store name", "service name", "title", "name", "description", "desc", "item description", "product description", "item"), area="general"),
     _c("gender", "Gender", "group", synonyms=("gender", "sex"), area="customers"),
     _c("currency", "Currency", "group", synonyms=("currency", "currency code", "curr", "ccy"), area="general"),
+    _c("movement_type", "Stock movement type", "group", synonyms=("movement", "movement type", "transaction type", "txn type", "type of movement", "in out", "voucher type",
+       "entry type", "doc type", "stock movement", "move type"), area="stock"),
+    _c("ticker", "Share / ticker", "group", synonyms=("symbol", "ticker", "scrip", "security", "stock symbol", "share", "company symbol", "isin"), area="market"),
     _c("reason", "Reason", "group", synonyms=("reason", "return reason", "cancel reason", "cause", "complaint type", "issue type"), area="service"),
     _c("group", "Group", "group", (), area="general"),
     # ---- dates ----
     _c("event_date", "Date", "date", synonyms=("date", "order date", "sale date", "transaction date", "invoice date", "created", "timestamp", "datetime", "day", "datum", "fecha"), area="general"),
     _c("snapshot_date", "Snapshot date", "date", synonyms=("snapshot date", "as of", "as on", "stock date", "count date", "report date"), area="stock"),
+    _c("expiry_date", "Expiry date", "date", synonyms=("expiry", "expiry date", "exp date", "expiration", "expiration date", "best before", "use by", "batch expiry", "expires",
+       "shelf life end", "valid till", "valid until"), area="stock"),
+    _c("due_date", "Due / expected date", "date", synonyms=("due date", "expected date", "expected delivery", "eta", "promised date", "delivery due", "required by", "need by", "deadline", "target date", "sla date"), area="operations"),
+    _c("done_date", "Completed / received date", "date", synonyms=("received date", "receipt date", "grn date", "delivered date", "delivery date", "ship date", "shipped date", "dispatch date", "completed date",
+       "completion date", "closed date", "resolved date", "paid date", "payment date", "actual date", "arrival date"), area="operations"),
     _c("signup_date", "Start date", "date", synonyms=("signup date", "join date", "joined", "registration date", "first purchase", "start date", "created at", "member since"), area="customers"),
     # ---- not for analysis ----
     _c("personal", "Personal detail", "text", synonyms=("customer name", "email", "phone", "mobile", "address", "street", "contact", "full name", "first name", "last name", "client name", "patient name", "employee name"), area="general"),
@@ -97,6 +117,10 @@ KEY_CONCEPTS = [c for c in CONCEPTS.values() if c.kind == "key"]
 GROUP_CONCEPTS = [c for c in CONCEPTS.values() if c.kind == "group"]
 DATE_CONCEPTS = [c for c in CONCEPTS.values() if c.kind == "date"]
 
+MOVEMENT_WORDS = re.compile(r"^(in|out|inward|outward|sale|sales|sold|issue|issued|receipt|received|grn|purchase|purchased|return|returned|sales return|purchase return|"
+                            r"adj|adjust|adjustment|damage|damaged|expired|expiry|wastage|waste|write ?off|writeoff|loss|lost|theft|shrinkage|transfer|transfer in|transfer out|"
+                            r"stock in|stock out|consumption|consumed|opening|opening stock|dispatch|dispatched|production|scrap)$", re.I)
+TICKER_VALUE = re.compile(r"^[A-Z][A-Z0-9&.\-]{0,11}$")
 STATUS_WORDS = re.compile(r"complet|deliver|cancel|return|refund|pending|ship|fail|success|paid|unpaid|process|open|closed|resolved|approved|reject|declin|active|inactive|void|attend|no.?show|missed|book|schedul|confirm|churn|expired|won|lost|overdue", re.I)
 CHANNEL_WORDS = re.compile(r"online|offline|store|web|app|mobile|marketplace|social|email|direct|retail|wholesale|phone|referral|organic|paid|instore|in-store|ecom|amazon|website|partner", re.I)
 PAYMENT_WORDS = re.compile(r"card|cash|upi|wallet|paypal|bank|transfer|cod|credit|debit|net ?banking|emi|cheque|check", re.I)

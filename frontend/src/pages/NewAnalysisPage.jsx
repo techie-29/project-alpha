@@ -5,7 +5,7 @@ import ReadingReview from "../components/alpha/ReadingReview";
 import { deleteFile, listFiles, readFiles, startAnalysis, uploadFiles } from "../services/alphaApi";
 import { buildConfirmations, fileSize } from "../utils/alphaFormat";
 
-const EMPTY = { concepts: {}, links: {}, types: {}, rowOrder: {} };
+const EMPTY = { concepts: {}, links: {}, types: {}, rowOrder: {}, dateOrder: {}, timeCol: {} };
 
 export default function NewAnalysisPage({ token }) {
   const navigate = useNavigate();

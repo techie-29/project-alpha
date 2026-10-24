@@ -34,7 +34,8 @@ class Target:
 def targets(F: Frame) -> list[Target]:
     d, T = F.df, []
     has = F.has
-    if F.role == "transactions" and has("revenue"):
+    ledger = "_units_lost" in d.columns or str(F.canon.get("quantity", "")).endswith("is a sale / issue")
+    if F.role == "transactions" and has("revenue") and not ledger:
         T.append(Target("aov" if has("order_id") else "avg_sale", "Average order value" if has("order_id") else "Average sale", "revenue", None, "ok", "money", +1, True))
     if has("profit", "revenue"):
         T.append(Target("margin", "Profit margin", "profit", "revenue", "ok", "pct", +1, True, "ratio"))
@@ -61,6 +62,12 @@ def targets(F: Frame) -> list[Target]:
         T.append(Target("duration", "Average time taken", "duration", None, "all", "days", -1))
     if has("rating"):
         T.append(Target("rating", "Average rating", "rating", None, "all", "rating", +1))
+    if has("_fc_abs_err", "quantity"):
+        T.append(Target("forecast_error", "Forecast error", "_fc_abs_err", "quantity", "all", "pct", -1, False, "ratio"))
+    if has("_units_lost", "_units_out_all"):
+        T.append(Target("loss_rate", "Loss rate (units damaged / lost)", "_units_lost", "_units_out_all", "all", "pct", -1, False, "ratio"))
+    if has("units_received", "units_ordered") and F.role != "snapshot":
+        T.append(Target("fill_rate", "Received vs ordered", "units_received", "units_ordered", "all", "pct", +1, False, "ratio"))
     return T
 
 
@@ -75,7 +82,7 @@ OUTCOME_GROUPS = {"status", "sentiment", "reason"}       # results of what happe
 
 
 def group_columns(F: Frame, max_levels: int = 60) -> list[str]:
-    skip = {"name_label", "personal", "free_text", "currency"} | OUTCOME_GROUPS
+    skip = {"name_label", "personal", "free_text", "currency", "product_id", "customer_id", "order_id", "entity_id", "movement_type"} | OUTCOME_GROUPS
     out = []
     for g, cols in F.groups.items():
         if g in skip:
@@ -86,3 +93,11 @@ def group_columns(F: Frame, max_levels: int = 60) -> list[str]:
                 if 2 <= nu <= max_levels:
                     out.append(c)
     return list(dict.fromkeys(out))
+
+
+PRODUCT_SIDE = {"product_id", "product_group", "name_label", "supplier_id"}
+
+
+def product_side(F: Frame, col: str) -> bool:
+    """A column that describes the product (its category, its supplier): it fixes the price of a one-item row."""
+    return any(col in F.groups.get(g, []) for g in PRODUCT_SIDE) or F.canon.get("product_id") == col

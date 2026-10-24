@@ -7,7 +7,9 @@ import pandas as pd
 from .frame import Frame, MONEY
 from ..model.concepts import CONCEPTS
 
-FLOW_ROLES = ("transactions", "lines", "periodic")
+import re as _re
+LOSS_WORDS = _re.compile(r"damage|expired|wastage|waste|write ?off|loss|lost|theft|shrink|scrap|spoil|broken", _re.I)
+FLOW_ROLES = ("transactions", "lines", "periodic", "snapshot")      # a daily stock panel also carries flows (units sold per day)
 
 
 @dataclass(frozen=True)
@@ -69,7 +71,27 @@ CATALOGUE: list[Metric] = [
     M("stock_value_retail", "Stock value (at price)", "stock", ("_stock_value_retail",), ("latest_level", "_stock_value_retail"), "money", 0, roles=("snapshot", "master"), how="units on hand x unit price", money=True, headline=60),
     M("out_of_stock", "Items out of stock", "stock", ("stock_level",), ("latest_count_if", "stock_level", "zero"), "count", -1, roles=("snapshot", "master"), how="items whose latest count is 0", headline=55),
     M("below_reorder", "Items at or below reorder level", "stock", ("stock_level", "reorder_level"), ("latest_count_if", "stock_level", "reorder"), "count", -1, roles=("snapshot", "master"), how="items whose latest count is at or below their reorder level", headline=50),
+    M("units_received", "Units received", "stock", ("units_received",), S("units_received"), "count", 0, how="sum of units received / bought", headline=35),
+    M("units_ordered", "Units ordered", "stock", ("units_ordered",), S("units_ordered"), "count", 0, how="sum of units ordered from suppliers", headline=20),
+    M("fill_rate", "Received vs ordered", "stock", ("units_received", "units_ordered"), R(S("units_received"), S("units_ordered")), "pct", +1, how="units received / units ordered", headline=40),
+    M("purchase_value", "Purchases (at cost)", "costs", ("_purchase_value",), S("_purchase_value"), "money", 0, how="units bought x unit cost", money=True, headline=45),
+    M("units_lost", "Units damaged / lost", "stock", ("_units_lost",), S("_units_lost"), "count", -1, how="units in damaged / expired / lost movements", headline=42),
+    M("loss_rate", "Loss rate", "stock", ("_units_lost", "_units_out_all"), R(S("_units_lost"), S("_units_out_all")), "pct", -1, how="units lost / (units sold + units lost)", headline=48),
+    M("avg_cover", "Days of stock left", "stock", ("_cover_days",), A("_cover_days"), "days", 0, how="stock on hand / average units sold per day, averaged over items"),
     M("stock_items", "Items tracked", "stock", ("product_id", "stock_level"), N("product_id"), "count", 0, roles=("snapshot", "master"), how="number of distinct items with a stock count"),
+    M("forecast", "Forecast / plan", "sales", ("forecast",), S("forecast"), "number", 0, how="sum of the forecast column", headline=12),
+    M("forecast_error", "Forecast error", "sales", ("_fc_abs_err", "quantity"), R(S("_fc_abs_err"), S("quantity")), "pct", -1, how="sum of |forecast - actual| / actual units", headline=38),
+    M("forecast_bias", "Forecast vs actual", "sales", ("forecast", "quantity"), R(S("forecast"), S("quantity")), "pct", 0, how="forecast / actual units (100% = spot on; above = over-forecast)"),
+    M("price_vs_competitor", "Price vs competitors", "products", ("_price_gap",), A("_price_gap"), "pct", 0, how="average of (our price / competitor price - 1)", headline=33),
+    M("avg_discount_pct", "Average discount %", "sales", ("discount_pct",), A("discount_pct"), "pct", -1, how="average discount percentage per row", headline=22),
+    # ---------------- market / levels (latest value, never added up) ----------------
+    M("price_last", "Latest price", "market", ("price_level",), ("last", "price_level"), "money", 0, roles=FLOW_ROLES, how="price on the latest date", money=True, headline=92),
+    M("price_avg", "Average price", "market", ("price_level",), A("price_level"), "money", 0, roles=FLOW_ROLES, how="average price", money=True),
+    M("price_high", "Highest price", "market", ("price_level",), ("max", "price_level"), "money", 0, roles=FLOW_ROLES, how="highest price in the period", money=True, headline=55),
+    M("price_low", "Lowest price", "market", ("price_level",), ("min", "price_level"), "money", 0, roles=FLOW_ROLES, how="lowest price in the period", money=True, headline=54),
+    M("daily_return_sd", "Daily price swing", "market", ("_ret",), ("std", "_ret"), "pct", -1, roles=FLOW_ROLES, how="standard deviation of day-to-day % change (volatility)", headline=50),
+    M("volume", "Volume traded", "market", ("trade_volume",), S("trade_volume"), "count", 0, roles=FLOW_ROLES, how="sum of traded volume", headline=60),
+    M("level_last", "Latest level", "general", ("level_value",), ("last", "level_value"), "number", 0, roles=FLOW_ROLES, how="value on the latest date", headline=45),
     # ---------------- operations / service ----------------
     M("avg_duration", "Average time taken", "operations", ("duration",), A("duration"), "days", -1, roles=FLOW_ROLES, how="average of the time-taken column", headline=50),
     M("avg_promised", "Average promised time", "operations", ("promised_duration",), A("promised_duration"), "days", 0, how="average promised time"),
@@ -103,6 +125,20 @@ def available(F: Frame) -> list[Metric]:
                 label = f"{val} rate ({col.replace('_', ' ')})" if val != "yes" else f"Share of rows with a {col.replace('_', ' ')}"
                 out.append(Metric(f"rate:{fc}", label[0].upper() + label[1:], "operations", (fc,), ("flag", fc), "pct", -1,
                                   how=f"share of all rows where {col} is {val}" if val != "yes" else f"share of all rows where {col} is filled in", headline=57))
+    if "_units_lost" in F.df.columns or str(F.canon.get("quantity", "")).endswith("is a sale / issue"):
+        out = [m for m in out if m.id not in ("orders", "aov", "units_per_order", "orders_per_customer", "avg_sale")]   # a stock ledger: rows are movements, not orders
+        import dataclasses as _dc
+        out = [_dc.replace(m, label="Stock movements", how="number of movement rows (in, out, sales, damage...)") if m.id == "transactions" else m for m in out]
+    dc = str(F.canon.get("duration", ""))
+    if dc.startswith("days from"):
+        import dataclasses
+        lab = dc.replace("days from", "Days from")
+        out = [dataclasses.replace(m, label=f"Average {lab[0].lower() + lab[1:]}", how=f"average of {dc}") if m.id == "avg_duration" else
+               (dataclasses.replace(m, label="Average days late (vs due date)") if m.id == "avg_late" else m) for m in out]
+    if "price_level" in F.df.columns or "level_value" in F.df.columns:
+        out = [m for m in out if m.id not in ("transactions", "orders", "avg_sale", "aov")]    # rows of a price table are dates, not sales
+    if any(m.id == "loss_rate" for m in out):        # 'Damaged rate' from the movement column says the same as the loss rate
+        out = [m for m in out if not (m.id.startswith("rate:") and "__rate__" in m.id and LOSS_WORDS.search(m.id))]
     ids = {m.id for m in out}
     if "orders" in ids:
         out = [m for m in out if m.id not in ("transactions", "avg_sale")]
@@ -118,11 +154,13 @@ def generic_metrics(F: Frame, used_cols: set) -> list[Metric]:
         if c in used_cols:
             continue
         con = CONCEPTS[cid]
-        agg = "sum" if con.agg == "sum" and F.role in FLOW_ROLES else "mean"
-        label = c.replace("_", " ").strip().capitalize()
-        out.append(Metric(f"col:{c}", label if agg == "sum" else f"Average {label.lower()}", con.area if con.area != "general" else "other",
-                          (c,), (agg, c), "money" if con.money and agg == "sum" else "number", con.polarity, roles=(F.role,),
-                          how=f"{'sum' if agg == 'sum' else 'average'} of {c}", money=con.money))
+        agg = "sum" if con.agg == "sum" and F.role in FLOW_ROLES else ("last" if con.agg == "level" and F.has_time else "mean")
+        label = c.replace("_", " ").strip()
+        label = label[0].upper() + label[1:] if label else c
+        shown = label if agg == "sum" else (f"Latest {label}" if agg == "last" else f"Average {label.lower()}")
+        out.append(Metric(f"col:{c}", shown, con.area if con.area != "general" else "other",
+                          (c,), (agg, c), "money" if con.money and agg in ("sum", "last") else "number", con.polarity, roles=(F.role,),
+                          how=f"{dict(sum='sum', last='value on the latest date of', mean='average')[agg]} {c}", money=con.money))
     return out
 
 
@@ -143,6 +181,14 @@ def _agg(d: pd.DataFrame, spec: tuple, keys):
         return g[spec[1]].sum(min_count=1) if g is not None else d[spec[1]].sum(min_count=1)
     if op == "mean":
         return g[spec[1]].mean() if g is not None else d[spec[1]].mean()
+    if op in ("max", "min", "std"):
+        return getattr(g[spec[1]], op)() if g is not None else getattr(d[spec[1]], op)()
+    if op == "last":
+        dd = d.sort_values("_t") if "_t" in d.columns else d
+        dd = dd[dd[spec[1]].notna()]
+        if g is not None:
+            return dd.groupby(keys, observed=True, sort=True)[spec[1]].last()
+        return dd[spec[1]].iloc[-1] if len(dd) else np.nan
     if op == "nunique":
         return g[spec[1]].nunique() if g is not None else d[spec[1]].nunique()
     if op == "count":
@@ -163,10 +209,11 @@ def _latest(d: pd.DataFrame, spec: tuple, keys, item: str | None):
     col = spec[1]
     if "_t" in d.columns and d["_t"].notna().any():
         d = d.sort_values("_t")
-    it = item if item and item in d.columns else None
+    its = [x for x in ([item] if isinstance(item, str) else list(item or [])) if x in d.columns]
     gk = ([keys] if isinstance(keys, str) else list(keys or []))
-    if it:
-        last = d.groupby(gk + [it], observed=True, sort=False).tail(1) if gk else d.groupby(it, sort=False).tail(1)
+    its = [x for x in its if x not in gk]
+    if its:
+        last = d.groupby(gk + its, observed=True, sort=False).tail(1)
     else:
         last = d[d["_t"] == d["_t"].max()] if "_t" in d.columns else d
         if gk and "_t" in d.columns:
@@ -178,12 +225,19 @@ def _latest(d: pd.DataFrame, spec: tuple, keys, item: str | None):
     return hit.groupby([last[k] for k in gk], observed=True).sum() if gk else float(hit.sum())
 
 
+def _items(F: Frame, d: pd.DataFrame) -> list:
+    """What one stock item is: product, or product + store when the same product is counted in several stores."""
+    if F.item_keys:
+        return [k for k in F.item_keys if k in d.columns]
+    return ["product_id"] if "product_id" in d.columns else []
+
+
 def value(F: Frame, m: Metric, currency: str | None = None, mask: pd.Series | None = None) -> float | None:
     d = F.df[_mask(F, m, currency) & (mask if mask is not None else True)]
     if not len(d):
         return None
     if m.spec[0] in ("latest_level", "latest_count_if"):
-        v = _latest(d, m.spec, None, "product_id" if "product_id" in d.columns else None)
+        v = _latest(d, m.spec, None, _items(F, d))
     else:
         v = _agg(d, m.spec, None)
     v = float(v) if v is not None and np.isfinite(v) else None
@@ -198,7 +252,7 @@ def series(F: Frame, m: Metric, grain: str, currency: str | None = None) -> tupl
         return [], []
     d["_p"] = d["_t"].dt.to_period({"day": "D", "week": "W-SUN", "month": "M", "quarter": "Q", "year": "Y"}[grain]).dt.start_time
     if m.spec[0] in ("latest_level", "latest_count_if"):
-        s = _latest(d, m.spec, "_p", "product_id" if "product_id" in d.columns else None)
+        s = _latest(d, m.spec, "_p", _items(F, d))
     else:
         s = _agg(d, m.spec, "_p")
     full = pd.period_range(d["_p"].min(), d["_p"].max(), freq={"day": "D", "week": "W-SUN", "month": "M", "quarter": "Q", "year": "Y"}[grain]).start_time
@@ -215,7 +269,7 @@ def by_group(F: Frame, m: Metric, col: str, currency: str | None = None, top: in
     if not len(d):
         return []
     if m.spec[0] in ("latest_level", "latest_count_if"):
-        s = _latest(d, m.spec, col, "product_id" if "product_id" in d.columns and col != "product_id" else None)
+        s = _latest(d, m.spec, col, [k for k in _items(F, d) if k != col])
     else:
         s = _agg(d, m.spec, col)
     rows = d.groupby(col, observed=True).size()
