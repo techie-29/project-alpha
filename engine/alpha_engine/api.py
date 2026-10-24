@@ -34,11 +34,16 @@ def _auth(key: str | None) -> None:
         raise HTTPException(401, "bad engine key")
 
 
+def _norm(x: str) -> str:
+    return os.path.normcase(os.path.realpath(os.path.abspath(x)))
+
+
 def _safe(path: str) -> str:
     p = Path(path).resolve()
-    root = Path(UPLOAD_DIR).resolve()
-    if root != p and root not in p.parents:
-        raise HTTPException(400, "file is outside the upload folder")
+    root, fp = _norm(UPLOAD_DIR), _norm(path)
+    if fp != root and not fp.startswith(root.rstrip(os.sep) + os.sep):
+        raise HTTPException(400, f"file is outside the upload folder. File: {path} | engine upload folder "
+                                 f"(ENGINE_UPLOAD_DIR in engine/.env): {UPLOAD_DIR}")
     if not p.is_file():
         raise HTTPException(404, "file not found")
     return str(p)
@@ -65,7 +70,8 @@ class AnalyzeRequest(ReadRequest):
 @app.get("/v1/health")
 def health(deep: bool = False):
     p = default_provider()
-    out = {"ok": True, "ai": p.name}
+    out = {"ok": True, "ai": p.name, "upload_dir": UPLOAD_DIR,
+           "upload_dir_exists": os.path.isdir(UPLOAD_DIR), "data_dir": DATA_DIR}
     if deep and hasattr(p, "check"):
         out["ai_check"] = p.check()            # one tiny real call, to confirm the key and model work
     return out
