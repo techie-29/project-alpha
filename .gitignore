@@ -11,3 +11,5 @@ __pycache__/
 engine/.venv/
 engine/.env
 engine/engine_data/
+engine/alpha_bench/
+engine/alpha_try/
