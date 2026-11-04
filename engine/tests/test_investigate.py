@@ -19,7 +19,7 @@ def test_sandbox_runs_a_calculation():
 
 @pytest.mark.parametrize("code", [
     "import os\nresult = 1", "result = open('/etc/passwd').read()", "result = df.to_csv('/tmp/x.csv')", "result = ().__class__",
-    "result = eval('1+1')", "result = pd.read_csv('http://example.com/a.csv')", "def f():\n    return 1\nresult = f()",
+    "result = eval('1+1')", "result = pd.read_csv('http://example.com/a.csv')", "def f():\n    import os\n    return 1\nresult = f()",
     "result = getattr(df, 'amount')", "result = [c for c in ().__class__.__mro__]", "result = df.query('amount > 1')", "result = __import__('os')"])
 def test_sandbox_refuses_dangerous_code(code):
     out = sandbox.run(code, frame())

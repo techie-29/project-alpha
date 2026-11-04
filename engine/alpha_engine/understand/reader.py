@@ -147,11 +147,10 @@ def _read_excel(path: str, notes: list[str]) -> pd.DataFrame:
     header = [str(x) if pd.notna(x) else "" for x in raw.iloc[h].tolist()]
     df = raw.iloc[h + 1:].copy()
     df.columns = header
-    first_row = int(raw.index[h + 1]) if len(raw) > h + 1 else 0
-    df.index = df.index - first_row + 0
     df = df.infer_objects()
-    out = _fix_frame(df.reset_index(drop=True), notes, first_row - 0)
-    return out
+    # read with header=None, so each row's index is its Excel row number minus 1 (blank rows dropped above keep their
+    # numbers). _fix_frame numbers rows as index + 2 + skipped, so skipped = -1 gives the exact Excel row.
+    return _fix_frame(df, notes, -1)
 
 
 def read_any(path: str) -> tuple[pd.DataFrame, list[str]]:

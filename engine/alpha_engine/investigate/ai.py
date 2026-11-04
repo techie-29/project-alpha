@@ -102,7 +102,7 @@ def describe_frames(frames: dict) -> list[dict]:
         for c in F.df.columns:
             if c in ("_row",) or c.startswith("__rate__") or PII.search(c):
                 continue
-            kind = "date" if c == "_t" else "flag" if c in ("_ok", "_on_time") else None
+            kind = "date" if c == "_t" else "flag" if c in ("_ok", "_on_time", "_impossible") else None
             g = next((k for k, cs in F.groups.items() if c in cs), None)
             if g in ("personal", "free_text"):
                 continue
@@ -121,7 +121,8 @@ def describe_frames(frames: dict) -> list[dict]:
                     item.update(min=float(s.min()), median=float(s.median()), max=float(s.max()))
             cols.append(item)
         out.append({"table": name, "kind": F.role, "entity": F.entity, "rows": int(len(F.df)), "currency": F.currency,
-                    "columns": cols[:60], "notes": "column _ok is True for rows that count (not cancelled/returned); _t is the date; _cur is the currency"})
+                    "columns": cols[:60], "notes": "column _ok is True for rows that count (not cancelled/returned); _t is the date; _cur is the currency; "
+                    "_impossible names the data check a row failed (e.g. profit_above_sale), empty when the row passed"})
     return out
 
 

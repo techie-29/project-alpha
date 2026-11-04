@@ -5,7 +5,7 @@ Usage (from the project's engine folder, with its virtual environment active):
     python try_alpha.py  --no-ai  file1.csv                    -> the same without the AI helper
     python try_alpha.py  file1.csv --ask "Which product should I stock more of?" --ask "Why did sales fall?"
 
-Output goes to the screen and to ./alpha_try/<name>/report.json (and report.txt). Nothing is sent anywhere except,
+Output goes to the screen and to ./alpha_try/<name>/analyses/try_<name>/report.json (a readable copy is in ./alpha_try/<name>/report.txt). Nothing is sent anywhere except,
 if you have set OPENROUTER_API_KEY in engine/.env, summaries (column names, statistics, findings) to OpenRouter.
 """
 import argparse
@@ -52,7 +52,7 @@ def show(report, out):
     for f in report["reading"]["files"]:
         P(f"  {f['name']}  [{f.get('role')}]  rows={f.get('rows')}  time column={f.get('time_col')}")
         for c in f["columns"]:
-            P(f"      {c['name']:<28} -> {c.get('label') or c.get('concept'):<26} confidence {c.get('confidence')}")
+            P(f"      {c['name']:<28} -> {str(c.get('label') or c.get('concept') or 'not used'):<26} confidence {c.get('confidence')}")
         for n in f.get("notes", [])[:8]:
             P(f"      note: {n}")
     P("\nDASHBOARD NUMBERS")

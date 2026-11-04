@@ -1,6 +1,8 @@
 """Runs model-written pandas code in a separate, restricted process.
 Not a hardened container: the protections are (1) an AST allow-list (no imports, no dunder access, no file/network/eval calls),
-(2) a stripped set of builtins, (3) CPU / memory / file-size limits and a wall-clock timeout, (4) only the prepared table is passed in."""
+(2) a stripped set of builtins, (3) CPU / memory / file-size limits and a wall-clock timeout, (4) only the prepared table is passed in.
+On Windows the CPU / memory / file-size limits are not available (Python's `resource` module is Unix-only); there the
+wall-clock timeout is the only resource limit."""
 from __future__ import annotations
 import ast
 import json
@@ -10,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 
-BANNED_NODES = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Global, ast.Nonlocal,
+BANNED_NODES = (ast.Import, ast.ImportFrom, ast.AsyncFunctionDef, ast.ClassDef, ast.Global, ast.Nonlocal,
                 ast.Await, ast.Yield, ast.YieldFrom, ast.Delete, ast.With, ast.AsyncWith, ast.Try, ast.Raise)
 BANNED_NAMES = {"open", "exec", "eval", "compile", "getattr", "setattr", "delattr", "globals", "locals", "vars", "dir", "input",
                 "breakpoint", "help", "type", "object", "__import__", "memoryview", "bytearray", "exit", "quit", "os", "sys", "subprocess"}
@@ -46,9 +48,13 @@ def check(code: str) -> ast.AST:
 
 
 RUNNER = r'''
-import sys, json, pickle, resource, ast
+import sys, json, pickle, ast
 mem, cpu = int(sys.argv[2]), int(sys.argv[3])
-resource.setrlimit(resource.RLIMIT_AS, (mem, mem)); resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu)); resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+try:
+    import resource                      # Unix only; on Windows the parent's wall-clock timeout is the limit
+    resource.setrlimit(resource.RLIMIT_AS, (mem, mem)); resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu)); resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+except ImportError:
+    pass
 import pandas as pd, numpy as np
 payload = pickle.load(open(sys.argv[1], "rb"))
 code = payload["code"]
@@ -76,6 +82,15 @@ sys.stdout.write("\n@@RESULT@@" + json.dumps(conv(env["result"])))
 '''
 
 
+def _child_env() -> dict:
+    """A minimal environment for the child process. Windows needs SYSTEMROOT (and a temp folder) for Python and numpy to start."""
+    env = {"PATH": os.environ.get("PATH", ""), "PYTHONHASHSEED": "0", "OMP_NUM_THREADS": "1"}
+    for k in ("SYSTEMROOT", "SystemRoot", "WINDIR", "TEMP", "TMP"):
+        if os.environ.get(k):
+            env[k] = os.environ[k]
+    return env
+
+
 def run(code: str, df, timeout: int = 25, memory_mb: int = 3000, cpu_s: int = 20, tables: dict | None = None) -> dict:
     """Returns {"ok": True, "result": ...} or {"ok": False, "error": plain text}.
     `df` is the main table; `tables` (optional) gives every table by file name, for questions that need several files."""
@@ -89,7 +104,7 @@ def run(code: str, df, timeout: int = 25, memory_mb: int = 3000, cpu_s: int = 20
             pickle.dump({"code": code, "df": df, "tables": tables or {}}, fh, protocol=5)
         try:
             p = subprocess.run([sys.executable, "-I", "-c", RUNNER, pk, str(memory_mb * 1024 * 1024), str(cpu_s)], capture_output=True, text=True,
-                               timeout=timeout, cwd=d, env={"PATH": os.environ.get("PATH", ""), "PYTHONHASHSEED": "0", "OMP_NUM_THREADS": "1"})
+                               timeout=timeout, cwd=d, env=_child_env())
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "The calculation took too long and was stopped."}
     if p.returncode != 0 or "@@RESULT@@" not in p.stdout:

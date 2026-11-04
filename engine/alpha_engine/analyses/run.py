@@ -4,7 +4,7 @@ import os
 import sys
 import time
 import numpy as np
-from . import groups, concentration, trends, relations, customers, stock, outliers, explore, changes, market
+from . import groups, concentration, trends, relations, customers, stock, outliers, explore, changes, market, validity
 
 
 def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tuple[list[dict], dict]:
@@ -45,6 +45,7 @@ def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tupl
             fut = pool.submit(_changes_job, sv, S)
         except Exception:
             pool, fut = None, None
+    step("impossible values", lambda: validity.run(S, cur) + (validity.run(L, cur) if L is not None else []), 33)
     step("group differences", lambda: groups.run(S, cur, avg_order) if S is not None else [], 35)
     if L is not None:
         step("product differences", lambda: groups.run(L, cur, None, skip_cols=set(S.df.columns) if S is not None else None), 42)
@@ -65,6 +66,11 @@ def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tupl
         step("changes over time", collect, 85)
     else:
         step("changes over time", lambda: changes.run(sv, S), 85)
+    for F in (S, L):
+        try:
+            validity.caution(out, F)              # findings that rest on impossible rows get a warning
+        except Exception as e:
+            checked.setdefault("failed", []).append(f"caution: {type(e).__name__}: {str(e)[:120]}")
     checked["timing"] = timing
     return out, checked
 

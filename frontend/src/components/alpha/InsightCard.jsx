@@ -6,7 +6,7 @@ const POL = { good: ["Helps", "pol-good", "▲"], bad: ["Hurts", "pol-bad", "▼
 const TYPE = { group_difference: "Group difference", combination: "Hidden combination", trend: "Trend", change: "Change over time", share_shift: "Mix shift",
   seasonality: "Seasonal pattern", weekday: "Weekly rhythm", relationship: "Relationship", concentration: "Concentration", dependency: "Dependency",
   quiet_customers: "Customers", new_customers: "Customers", repeat: "Customers", stockout: "Stock", low_cover: "Stock", dead_stock: "Stock", overstock: "Stock",
-  loss_makers: "Profit", extreme_values: "Data check", duplicates: "Data check", ai_question: "AI question" };
+  loss_makers: "Profit", extreme_values: "Data check", duplicates: "Data check", data_problem: "Data problem", ai_question: "AI question" };
 
 export function Claim({ claim }) {
   return <span className={`al-badge al-badge-${CLAIM_CLASS[claim] || "calc"}`}>{claim}</span>;

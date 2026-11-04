@@ -8,7 +8,7 @@ from ..model.concepts import CONCEPTS
 STRENGTH_W = {"supported": 1.0, "calculated": 0.8, "early": 0.35}
 TYPE_W = {"stockout": 1.0, "loss_makers": 1.0, "expiry": 0.95, "quiet_customers": 0.95, "group_difference": 0.9, "combination": 0.95, "change": 0.85, "trend": 0.85,
           "dead_stock": 0.85, "low_cover": 0.85, "relationship": 0.8, "share_shift": 0.75, "dependency": 0.8, "concentration": 0.6, "seasonality": 0.7,
-          "weekday": 0.55, "new_customers": 0.7, "overstock": 0.7, "repeat": 0.45, "extreme_values": 0.5, "duplicates": 0.7}
+          "weekday": 0.55, "new_customers": 0.7, "overstock": 0.7, "repeat": 0.45, "extreme_values": 0.5, "duplicates": 0.7, "data_problem": 1.0}
 
 
 def pattern_key(i: dict) -> str:
@@ -24,7 +24,17 @@ def score(i: dict, revenue_total: float | None) -> float:
     money = min(1.0, np.sqrt(abs(share))) if share else 0.0
     s = (0.40 * money + 0.25 * STRENGTH_W.get(i["strength"], 0.5) + 0.15 * (1.0 if i.get("actionable") else 0.0)
          + 0.10 * {"bad": 1.0, "good": 0.6, "neutral": 0.3}[i["polarity"]] + 0.10) * TYPE_W.get(i["type"], 0.6)
+    if i.get("caution"):
+        s -= 0.3                                   # rests on rows flagged as likely data errors
     return round(float(s), 4)
+
+
+def material_problem(i: dict) -> bool:
+    """A data problem big enough that the owner must see it before anything else."""
+    if i.get("type") != "data_problem":
+        return False
+    n = i.get("numbers") or {}
+    return (i.get("impact_share") or 0) >= 0.1 or (n.get("rows_share") or 0) >= 0.05
 
 
 def suggestion(i: dict) -> str | None:
@@ -113,7 +123,7 @@ def assemble(items: list[dict], tiles: list[dict], prefs: dict | None = None) ->
         i["pattern"] = pattern_key(i)
         i["owner_pref"] = prefs.get(i["pattern"])
         i["muted"] = i["owner_pref"] == "not_useful"
-        i["score"] = score(i, rev) + (0.15 if i["owner_pref"] == "useful" else 0.0) - (1.0 if i["muted"] else 0.0)
+        i["score"] = score(i, rev) + (0.15 if i["owner_pref"] == "useful" else 0.0) - (1.0 if i["muted"] else 0.0) + (1.0 if material_problem(i) else 0.0)
         i["suggestion"] = suggestion(i)
         i["bucket"] = bucket(i)
     uniq.sort(key=lambda i: -i["score"])
@@ -191,7 +201,9 @@ def briefing(overview: dict, assembled: dict, warnings: list[str]) -> dict:
         key.append(s)
     leads = [i for i in items if i["id"] in {s["id"] for s in assembled["stories"]}]
     fix = [i for i in leads if i["bucket"] == "fix"]
-    headline = (fix[0]["title"] + ".") if fix else (leads[0]["title"] + ".") if leads else "Nothing unusual stood out in what was checked."
+    problem = next((i for i in items if material_problem(i)), None)
+    headline = ("Check your data first: " + problem["title"][0].lower() + problem["title"][1:] + ".") if problem else \
+        (fix[0]["title"] + ".") if fix else (leads[0]["title"] + ".") if leads else "Nothing unusual stood out in what was checked."
     span = next((f for f in overview["files"] if f.get("from")), None)
     return {"headline": headline, "key_numbers": key,
             "coverage": (f"{sum((f['rows'] or 0) for f in overview['files']):,} rows across {len(overview['files'])} file(s)" + (f", {span['from']} to {span['to']}" if span else "")),
