@@ -20,7 +20,7 @@ export function viewOf(report) {
   const health = full
     ? { text: `${(f.data_quality || []).length} data-quality note${(f.data_quality || []).length === 1 ? "" : "s"} from the AI's own checks`, rows: null }
     : dc ? { text: dc.headline, rows: dc.rows, total: dc.rows_in } : null;
-  return { full, f, currency, figures, health, cards: f.cards || [], headline: f.headline || report.briefing?.headline, brain: full ? "full AI" : (f.brain || "metric + AI") };
+  return { full, f, currency, figures, health, cards: f.cards || [], headline: f.headline || report.briefing?.headline, brain: full ? "full AI" : (f.brain || "older engine") };
 }
 
 const TONE = { risk: ["Risk", "ar-risk"], strength: ["Strength", "ar-strength"], data: ["Data issue", "ar-data"], neutral: ["Worth knowing", "ar-neutral"] };

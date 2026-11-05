@@ -44,7 +44,7 @@ export default function AnalysisPage({ token }) {
     <div className="al-progress" role="progressbar" aria-valuenow={status.progress}><i style={{ width: `${status.progress}%` }}/><span>{status.progress}%</span></div>
     {status.engineMessage && <p className="al-note-warn">{status.engineMessage}</p>}
   </div>;
-  if (report.version !== 2 && report.brain !== "full AI") return <div className="page-content"><div className="al-panel">This analysis was made by an older version of Alpha. Please run it again to see the new report.</div><Link className="secondary-button" to="/upload">Run again</Link></div>;
+  if ((report.version !== 2 || !report.data_check) && report.brain !== "full AI") return <div className="page-content"><div className="al-panel">This analysis was made by an older version of Alpha. Please run it again to see the new report.</div><Link className="secondary-button" to="/upload">Run again</Link></div>;
 
   const usage = report.ai?.usage;
   const aiOn = report.ai?.provider && report.ai.provider !== "none";
