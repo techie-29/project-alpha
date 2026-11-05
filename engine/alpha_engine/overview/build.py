@@ -291,7 +291,7 @@ def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> d
     if L and S and not S.has("quantity") and L.has("quantity"):
         cands += [(m.headline, L, m) for m in available(L) if m.id in ("units", "products_sold", "avg_selling_price")]
     seen, per_area = set(), {}
-    cap = {"sales": 6, "customers": 3, "operations": 3, "stock": 6, "service": 2, "costs": 2, "products": 2, "general": 2, "people": 1, "market": 6}
+    cap = {"sales": 6, "customers": 3, "operations": 3, "stock": 8, "service": 2, "costs": 2, "products": 2, "general": 2, "people": 1, "market": 6}
     for h, F, m in sorted(cands, key=lambda x: -x[0]):
         if h <= 0 or m.id in seen or per_area.get(m.area, 0) >= cap.get(m.area, 2):
             continue

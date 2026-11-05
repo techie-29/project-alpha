@@ -25,6 +25,8 @@ class Metric:
     how: str = ""                  # plain description of the calculation
     money: bool = False
     headline: int = 0              # >0: candidate for the top tiles (higher = more important)
+    tier: str = "core"             # core | input (used inside other figures, not shown on its own) | pack:market | pack:forecast
+    trend: bool = True             # False: a one-off figure for the whole period (growth, 'gone quiet'); no month-by-month line
 
 
 def M(*a, **k):
@@ -43,66 +45,89 @@ CATALOGUE: list[Metric] = [
     M("orders", "Orders", "sales", ("order_id",), N("order_id"), "count", +1, how="number of distinct orders", headline=90),
     M("transactions", "Transactions", "sales", (), CNT, "count", +1, roles=("transactions",), how="number of rows that count", headline=40),
     M("aov", "Average order value", "sales", ("revenue", "order_id"), R(S("revenue"), N("order_id")), "money", +1, how="revenue / orders", money=True, headline=80),
-    M("avg_sale", "Average sale", "sales", ("revenue",), A("revenue"), "money", +1, roles=("transactions",), how="average revenue per row", money=True, headline=30),
+    M("avg_sale", "Average sale", "sales", ("revenue",), A("revenue"), "money", +1, roles=("transactions",), how="average revenue per row", money=True, tier="input"),
     M("units", "Units sold", "sales", ("quantity",), S("quantity"), "count", +1, how="sum of units", headline=60),
-    M("units_per_order", "Units per order", "sales", ("quantity", "order_id"), R(S("quantity"), N("order_id")), "number", +1, how="units / orders"),
+    M("units_per_order", "Units per order", "sales", ("quantity", "order_id"), R(S("quantity"), N("order_id")), "number", +1, how="units / orders", tier="input"),
     M("avg_selling_price", "Average selling price", "sales", ("revenue", "quantity"), R(S("revenue"), S("quantity")), "money", 0, how="revenue / units", money=True),
-    M("gross_sales", "Gross sales", "sales", ("gross_revenue",), S("gross_revenue"), "money", +1, how="sum of gross sales", money=True),
-    M("discounts", "Discounts given", "sales", ("discount",), S("discount"), "money", -1, how="sum of discounts", money=True, headline=20),
+    M("gross_sales", "Gross sales", "sales", ("gross_revenue",), S("gross_revenue"), "money", +1, how="sum of gross sales", money=True, tier="input"),
+    M("discounts", "Discounts given", "sales", ("discount",), S("discount"), "money", -1, how="sum of discounts", money=True, tier="input"),
     M("discount_rate", "Discount rate", "sales", ("discount", "gross_revenue"), R(S("discount"), S("gross_revenue")), "pct", -1, how="discounts / gross sales", headline=35),
-    M("tax", "Tax collected", "sales", ("tax",), S("tax"), "money", 0, how="sum of tax", money=True),
+    M("tax", "Tax collected", "sales", ("tax",), S("tax"), "money", 0, how="sum of tax", money=True, tier="input"),
     M("profit", "Profit", "sales", ("profit",), S("profit"), "money", +1, how="sum of profit", money=True, headline=95),
     M("margin", "Profit margin", "sales", ("profit", "revenue"), R(S("profit"), S("revenue")), "pct", +1, how="profit / revenue", headline=85),
     M("cost", "Cost of goods", "costs", ("cost",), S("cost"), "money", -1, how="sum of cost", money=True, headline=25),
-    M("expenses", "Other expenses", "costs", ("expense",), S("expense"), "money", -1, how="sum of the main expense column", money=True, headline=15),
-    M("cost_ratio", "Cost as share of revenue", "costs", ("cost", "revenue"), R(S("cost"), S("revenue")), "pct", -1, how="cost / revenue"),
+    M("expenses", "Other expenses", "costs", ("expense",), S("expense"), "money", -1, how="sum of the main expense column", money=True, tier="input"),
+    M("cost_ratio", "Cost as share of revenue", "costs", ("cost", "revenue"), R(S("cost"), S("revenue")), "pct", -1, how="cost / revenue", tier="input"),
     # ---------------- customers ----------------
     M("customers", "Customers", "customers", ("customer_id",), N("customer_id"), "count", +1, how="number of distinct customers", headline=88),
     M("revenue_per_customer", "Revenue per customer", "customers", ("revenue", "customer_id"), R(S("revenue"), N("customer_id")), "money", +1, how="revenue / customers", money=True, headline=45),
     M("orders_per_customer", "Orders per customer", "customers", ("order_id", "customer_id"), R(N("order_id"), N("customer_id")), "number", +1, how="orders / customers", headline=40),
-    M("avg_customer_age", "Average customer age", "customers", ("age",), A("age"), "number", 0, roles=FLOW_ROLES + ("master",), how="average age"),
+    M("avg_customer_age", "Average customer age", "customers", ("age",), A("age"), "number", 0, roles=FLOW_ROLES + ("master",), how="average age", tier="input"),
     # ---------------- products ----------------
     M("products_sold", "Products sold", "products", ("product_id",), N("product_id"), "count", +1, how="number of distinct products with sales", headline=50),
-    M("avg_unit_price", "Average unit price", "products", ("unit_price",), A("unit_price"), "money", 0, roles=FLOW_ROLES + ("master",), how="average of unit price", money=True),
-    M("product_count", "Products in catalogue", "products", ("product_id",), N("product_id"), "count", 0, roles=("master",), how="number of products listed", headline=30),
+    M("avg_unit_price", "Average unit price", "products", ("unit_price",), A("unit_price"), "money", 0, roles=FLOW_ROLES + ("master",), how="average of unit price", money=True, tier="input"),
+    M("product_count", "Products in catalogue", "products", ("product_id",), N("product_id"), "count", 0, roles=("master",), how="number of products listed", tier="input"),
     # ---------------- stock ----------------
     M("stock_units", "Stock on hand", "stock", ("stock_level",), ("latest_level", "stock_level"), "count", 0, roles=("snapshot", "master"), how="units on hand, latest count per item", headline=70),
     M("stock_value", "Stock value (at cost)", "stock", ("_stock_value",), ("latest_level", "_stock_value"), "money", 0, roles=("snapshot", "master"), how="units on hand x unit cost, latest count per item", money=True, headline=75),
-    M("stock_value_retail", "Stock value (at price)", "stock", ("_stock_value_retail",), ("latest_level", "_stock_value_retail"), "money", 0, roles=("snapshot", "master"), how="units on hand x unit price", money=True, headline=60),
+    M("stock_value_retail", "Stock value (at price)", "stock", ("_stock_value_retail",), ("latest_level", "_stock_value_retail"), "money", 0, roles=("snapshot", "master"), how="units on hand x unit price", money=True, tier="input"),
     M("out_of_stock", "Items out of stock", "stock", ("stock_level",), ("latest_count_if", "stock_level", "zero"), "count", -1, roles=("snapshot", "master"), how="items whose latest count is 0", headline=55),
     M("below_reorder", "Items at or below reorder level", "stock", ("stock_level", "reorder_level"), ("latest_count_if", "stock_level", "reorder"), "count", -1, roles=("snapshot", "master"), how="items whose latest count is at or below their reorder level", headline=50),
-    M("units_received", "Units received", "stock", ("units_received",), S("units_received"), "count", 0, how="sum of units received / bought", headline=35),
-    M("units_ordered", "Units ordered", "stock", ("units_ordered",), S("units_ordered"), "count", 0, how="sum of units ordered from suppliers", headline=20),
+    M("units_received", "Units received", "stock", ("units_received",), S("units_received"), "count", 0, how="sum of units received / bought", tier="input"),
+    M("units_ordered", "Units ordered", "stock", ("units_ordered",), S("units_ordered"), "count", 0, how="sum of units ordered from suppliers", tier="input"),
     M("fill_rate", "Received vs ordered", "stock", ("units_received", "units_ordered"), R(S("units_received"), S("units_ordered")), "pct", +1, how="units received / units ordered", headline=40),
     M("purchase_value", "Purchases (at cost)", "costs", ("_purchase_value",), S("_purchase_value"), "money", 0, how="units bought x unit cost", money=True, headline=45),
-    M("units_lost", "Units damaged / lost", "stock", ("_units_lost",), S("_units_lost"), "count", -1, how="units in damaged / expired / lost movements", headline=42),
+    M("units_lost", "Units damaged / lost", "stock", ("_units_lost",), S("_units_lost"), "count", -1, how="units in damaged / expired / lost movements", headline=49),
     M("loss_rate", "Loss rate", "stock", ("_units_lost", "_units_out_all"), R(S("_units_lost"), S("_units_out_all")), "pct", -1, how="units lost / (units sold + units lost)", headline=48),
     M("avg_cover", "Days of stock left", "stock", ("_cover_days",), A("_cover_days"), "days", 0, how="stock on hand / average units sold per day, averaged over items"),
-    M("stock_items", "Items tracked", "stock", ("product_id", "stock_level"), N("product_id"), "count", 0, roles=("snapshot", "master"), how="number of distinct items with a stock count"),
-    M("forecast", "Forecast / plan", "sales", ("forecast",), S("forecast"), "number", 0, how="sum of the forecast column", headline=12),
-    M("forecast_error", "Forecast error", "sales", ("_fc_abs_err", "quantity"), R(S("_fc_abs_err"), S("quantity")), "pct", -1, how="sum of |forecast - actual| / actual units", headline=38),
-    M("forecast_bias", "Forecast vs actual", "sales", ("forecast", "quantity"), R(S("forecast"), S("quantity")), "pct", 0, how="forecast / actual units (100% = spot on; above = over-forecast)"),
+    M("stock_items", "Items tracked", "stock", ("product_id", "stock_level"), N("product_id"), "count", 0, roles=("snapshot", "master"), how="number of distinct items with a stock count", tier="input"),
+    M("forecast", "Forecast / plan", "sales", ("forecast",), S("forecast"), "number", 0, how="sum of the forecast column", tier="input"),
+    M("forecast_error", "Forecast error", "sales", ("_fc_abs_err", "quantity"), R(S("_fc_abs_err"), S("quantity")), "pct", -1, how="sum of |forecast - actual| / actual units", headline=38, tier="pack:forecast"),
+    M("forecast_bias", "Forecast vs actual", "sales", ("forecast", "quantity"), R(S("forecast"), S("quantity")), "pct", 0, how="forecast / actual units (100% = spot on; above = over-forecast)", tier="input"),
     M("price_vs_competitor", "Price vs competitors", "products", ("_price_gap",), A("_price_gap"), "pct", 0, how="average of (our price / competitor price - 1)", headline=33),
     M("avg_discount_pct", "Average discount %", "sales", ("discount_pct",), A("discount_pct"), "pct", -1, how="average discount percentage per row", headline=22),
     # ---------------- market / levels (latest value, never added up) ----------------
-    M("price_last", "Latest price", "market", ("price_level",), ("last", "price_level"), "money", 0, roles=FLOW_ROLES, how="price on the latest date", money=True, headline=92),
-    M("price_avg", "Average price", "market", ("price_level",), A("price_level"), "money", 0, roles=FLOW_ROLES, how="average price", money=True),
-    M("price_high", "Highest price", "market", ("price_level",), ("max", "price_level"), "money", 0, roles=FLOW_ROLES, how="highest price in the period", money=True, headline=55),
-    M("price_low", "Lowest price", "market", ("price_level",), ("min", "price_level"), "money", 0, roles=FLOW_ROLES, how="lowest price in the period", money=True, headline=54),
-    M("daily_return_sd", "Daily price swing", "market", ("_ret",), ("std", "_ret"), "pct", -1, roles=FLOW_ROLES, how="standard deviation of day-to-day % change (volatility)", headline=50),
-    M("volume", "Volume traded", "market", ("trade_volume",), S("trade_volume"), "count", 0, roles=FLOW_ROLES, how="sum of traded volume", headline=60),
-    M("level_last", "Latest level", "general", ("level_value",), ("last", "level_value"), "number", 0, roles=FLOW_ROLES, how="value on the latest date", headline=45),
+    M("price_last", "Latest price", "market", ("price_level",), ("last", "price_level"), "money", 0, roles=FLOW_ROLES, how="price on the latest date", money=True, headline=92, tier="pack:market"),
+    M("price_avg", "Average price", "market", ("price_level",), A("price_level"), "money", 0, roles=FLOW_ROLES, how="average price", money=True, tier="input"),
+    M("price_high", "Highest price", "market", ("price_level",), ("max", "price_level"), "money", 0, roles=FLOW_ROLES, how="highest price in the period", money=True, headline=55, tier="pack:market"),
+    M("price_low", "Lowest price", "market", ("price_level",), ("min", "price_level"), "money", 0, roles=FLOW_ROLES, how="lowest price in the period", money=True, headline=54, tier="pack:market"),
+    M("daily_return_sd", "Daily price swing", "market", ("_ret",), ("std", "_ret"), "pct", -1, roles=FLOW_ROLES, how="standard deviation of day-to-day % change (volatility)", headline=50, tier="pack:market"),
+    M("volume", "Volume traded", "market", ("trade_volume",), S("trade_volume"), "count", 0, roles=FLOW_ROLES, how="sum of traded volume", headline=60, tier="pack:market"),
+    M("level_last", "Latest level", "general", ("level_value",), ("last", "level_value"), "number", 0, roles=FLOW_ROLES, how="value on the latest date", tier="input"),
+    # ---------------- new core metrics (named calculations, see FN below) ----------------
+    M("sales_growth", "Sales growth", "sales", ("revenue",), ("fn", "growth"), "pct", +1, how="sales in the latest full months vs the same number of months before (12 vs 12 when there are 2 years, else 3 vs 3)", headline=0, trend=False),
+    M("biggest_order_share", "Biggest single order's share", "sales", ("revenue",), ("fn", "biggest_order_share"), "pct", 0, how="the largest order (or row) as a share of all sales in the period"),
+    M("expenses_share", "Expenses as share of sales", "costs", ("expense", "revenue"), R(S("expense"), S("revenue")), "pct", -1, how="freight and other expenses / revenue", headline=30),
+    M("profit_per_order", "Profit per order", "sales", ("profit", "order_id"), R(S("profit"), N("order_id")), "money", +1, how="profit / orders", money=True, headline=34),
+    M("loss_line_share", "Sales lines losing money", "sales", ("profit",), ("fn", "loss_line_share"), "pct", -1, how="share of rows whose profit is below zero", headline=72),
+    M("loss_amount", "Money lost on loss-making lines", "sales", ("profit",), ("fn", "loss_amount"), "money", -1, how="total of the negative profits", money=True, headline=46),
+    M("discount_margin_gap", "Margin: discounted vs full price", "sales", ("profit", "revenue"), ("fn", "discount_margin_gap"), "pct", 0, how="margin on rows with a discount minus margin on rows without (percentage points)"),
+    M("repeat_rate", "Repeat customer rate", "customers", ("customer_id",), ("fn", "repeat_rate"), "pct", +1, how="share of customers who bought on more than one order (or day)", headline=62),
+    M("new_customers", "New customers", "customers", ("customer_id", "_first_order"), ("fn", "new_customers"), "count", +1, how="customers whose first purchase in the data falls in the period", headline=44),
+    M("quiet_customers", "Customers gone quiet", "customers", ("_cust_quiet",), ("fn", "quiet_customers"), "count", -1, how="regular customers whose last purchase is more than twice their usual gap (and over 30 days) before the data ends", headline=52, trend=False),
+    M("top_customer_share", "Top 10% customers' share of sales", "customers", ("customer_id", "revenue"), ("fn", "top_customer_share"), "pct", 0, how="sales from the biggest 10% of customers / all sales"),
+    M("top_product_share", "Top 10 products' share of sales", "products", ("product_id", "revenue"), ("fn", "top_product_share"), "pct", 0, how="sales from the 10 biggest products / all sales"),
+    M("products_losing", "Products losing money", "products", ("product_id", "profit"), ("fn", "products_losing"), "count", -1, how="products whose total profit is below zero", headline=48),
+    M("slow_movers", "Slow-moving products", "products", ("product_id",), ("fn", "slow_movers"), "count", -1, how="products whose units (or sales) are under a fifth of the typical product's", headline=30),
+    M("stock_turnover", "Stock turnover", "stock", ("_stock_value", "quantity", "unit_cost"), ("fn", "stock_turnover"), "number", +1, roles=("snapshot",), how="cost of units sold / average stock value over the same dates", headline=58),
+    M("sell_through", "Sell-through", "stock", ("stock_level", "quantity"), ("fn", "sell_through"), "pct", +1, roles=("snapshot",), how="units sold / (units sold + stock left at the end)", headline=40),
+    M("dead_stock_value", "Dead stock value", "stock", ("_dead_value",), S("_dead_value"), "money", -1, roles=("snapshot",), how="stock value of items with stock on hand and no units sold in the last 90 days", money=True, headline=66, trend=False),
+    M("overstock_value", "Overstock value", "stock", ("_over_value",), S("_over_value"), "money", -1, roles=("snapshot",), how="stock value of items holding more than 180 days of sales", money=True, headline=50, trend=False),
+    M("lost_value", "Value lost to damage / expiry", "stock", ("_lost_value",), S("_lost_value"), "money", -1, how="units damaged, expired or lost x unit cost", money=True, headline=0),
+    M("top_supplier_share", "Biggest supplier's share of buying", "costs", ("supplier_id",), ("fn", "top_supplier_share"), "pct", 0, how="purchases from the largest supplier / all purchases", headline=28),
+    M("revenue_per_site", "Sales per store", "operations", ("revenue", "site_id"), R(S("revenue"), N("site_id")), "money", +1, how="revenue / stores", money=True, headline=26),
+    M("revenue_per_employee", "Sales per employee", "people", ("revenue", "employee_id"), R(S("revenue"), N("employee_id")), "money", +1, how="revenue / staff", money=True, headline=20),
     # ---------------- operations / service ----------------
     M("avg_duration", "Average time taken", "operations", ("duration",), A("duration"), "days", -1, roles=FLOW_ROLES, how="average of the time-taken column", headline=50),
-    M("avg_promised", "Average promised time", "operations", ("promised_duration",), A("promised_duration"), "days", 0, how="average promised time"),
+    M("avg_promised", "Average promised time", "operations", ("promised_duration",), A("promised_duration"), "days", 0, how="average promised time", tier="input"),
     M("avg_late", "Average delay vs promise", "operations", ("_late",), A("_late"), "days", -1, how="average of actual minus promised time", headline=45),
     M("on_time_rate", "On-time rate", "operations", ("_on_time",), ("flag", "_on_time"), "pct", +1, how="share of rows where actual time <= promised time", headline=58),
     M("avg_rating", "Average rating", "service", ("rating",), A("rating"), "rating", +1, roles=FLOW_ROLES + ("master",), how="average rating", headline=65),
-    M("avg_margin_pct", "Average margin % (per row)", "sales", ("margin_pct",), A("margin_pct"), "number", +1, how="average of the margin column"),
-    M("points", "Points", "customers", ("points",), S("points"), "count", 0, how="sum of points"),
+    M("avg_margin_pct", "Average margin % (per row)", "sales", ("margin_pct",), A("margin_pct"), "number", +1, how="average of the margin column", tier="input"),
+    M("points", "Points", "customers", ("points",), S("points"), "count", 0, how="sum of points", tier="input"),
     M("activity", "Activity", "general", ("activity_count",), S("activity_count"), "count", +1, how="sum of the activity column", headline=30),
-    M("employees", "People involved", "people", ("employee_id",), N("employee_id"), "count", 0, how="distinct employees / agents", headline=20),
-    M("sites", "Sites", "operations", ("site_id",), N("site_id"), "count", 0, how="distinct stores / sites", headline=15),
+    M("employees", "People involved", "people", ("employee_id",), N("employee_id"), "count", 0, how="distinct employees / agents", tier="input"),
+    M("sites", "Sites", "operations", ("site_id",), N("site_id"), "count", 0, how="distinct stores / sites", tier="input"),
 ]
 BY_ID = {m.id: m for m in CATALOGUE}
 
@@ -174,8 +199,152 @@ def _mask(F: Frame, m: Metric, currency: str | None) -> pd.Series:
     return mk
 
 
+# ---------------- named calculations: figures a sum or a ratio cannot express. Each takes the rows that count and returns one number.
+def _rev_by(d, key):
+    return d.groupby(key, observed=True)["revenue"].sum() if key in d.columns else pd.Series(dtype=float)
+
+
+def _fn_growth(d):
+    if "_t" not in d.columns or not d["_t"].notna().any():
+        return np.nan
+    m = d.groupby(d["_t"].dt.to_period("M"), observed=True)["revenue"].sum().sort_index()
+    if len(m) == 0:
+        return np.nan
+    last = d["_t"].max()
+    if last.day < 0.85 * last.days_in_month:                  # the last month is only partly in the data: leave it out
+        m = m.iloc[:-1]
+    full = m.reindex(pd.period_range(m.index.min(), m.index.max(), freq="M"), fill_value=0) if len(m) else m
+    n = 12 if len(full) >= 24 else (3 if len(full) >= 6 else 0)
+    if not n:
+        return np.nan
+    a, b = float(full.iloc[-n:].sum()), float(full.iloc[-2 * n:-n].sum())
+    return (a - b) / abs(b) if b else np.nan
+
+
+def _fn_biggest_order_share(d):
+    tot = d["revenue"].sum()
+    if not tot:
+        return np.nan
+    big = _rev_by(d, "order_id").max() if "order_id" in d.columns and d["order_id"].notna().any() else d["revenue"].max()
+    return float(big / tot)
+
+
+def _fn_loss_line_share(d):
+    p = d["profit"].dropna()
+    return float((p < 0).mean()) if len(p) else np.nan
+
+
+def _fn_loss_amount(d):
+    p = d["profit"]
+    return float(-p[p < 0].sum()) if p.notna().any() else np.nan
+
+
+def _fn_discount_margin_gap(d):
+    if "discount_pct" in d.columns:
+        disc = d["discount_pct"].fillna(0) > 0
+    elif "discount" in d.columns:
+        disc = d["discount"].fillna(0) > 0
+    else:
+        return np.nan
+    a, b = d[disc], d[~disc]
+    if len(a) < 30 or len(b) < 30 or not a["revenue"].sum() or not b["revenue"].sum():
+        return np.nan
+    return float(a["profit"].sum() / a["revenue"].sum() - b["profit"].sum() / b["revenue"].sum())
+
+
+def _fn_repeat_rate(d):
+    if "customer_id" not in d.columns or not d["customer_id"].notna().any():
+        return np.nan
+    by = "order_id" if "order_id" in d.columns and d["order_id"].notna().any() else None
+    per = d.groupby("customer_id", observed=True)[by].nunique() if by else d.assign(_day=d["_t"].dt.normalize()).groupby("customer_id", observed=True)["_day"].nunique() if "_t" in d.columns else None
+    return float((per >= 2).mean()) if per is not None and len(per) else np.nan
+
+
+def _fn_new_customers(d):
+    return float(d.loc[d["_first_order"].fillna(False).astype(bool), "customer_id"].nunique())
+
+
+def _fn_quiet_customers(d):
+    return float(d.loc[d["_cust_quiet"].fillna(False).astype(bool), "customer_id"].nunique()) if "customer_id" in d.columns else np.nan
+
+
+def _fn_top_customer_share(d):
+    r = _rev_by(d, "customer_id").sort_values(ascending=False)
+    if len(r) < 20 or not r.sum():
+        return np.nan
+    k = max(1, int(np.ceil(0.1 * len(r))))
+    return float(r.iloc[:k].sum() / r.sum())
+
+
+def _fn_top_product_share(d):
+    r = _rev_by(d, "product_id").sort_values(ascending=False)
+    if len(r) < 15 or not r.sum():
+        return np.nan
+    return float(r.iloc[:10].sum() / r.sum())
+
+
+def _fn_products_losing(d):
+    if "product_id" not in d.columns:
+        return np.nan
+    g = d.groupby("product_id", observed=True)["profit"].agg(["sum", "size"])
+    g = g[g["size"] >= 3]
+    return float((g["sum"] < 0).sum()) if len(g) else np.nan
+
+
+def _fn_slow_movers(d):
+    col = "quantity" if "quantity" in d.columns else ("revenue" if "revenue" in d.columns else None)
+    if col is None or "product_id" not in d.columns:
+        return np.nan
+    g = d.groupby("product_id", observed=True)[col].sum()
+    if len(g) < 10:
+        return np.nan
+    med = g.median()
+    return float((g < 0.2 * med).sum()) if med > 0 else np.nan
+
+
+def _fn_stock_turnover(d):
+    if "_t" not in d.columns:
+        return np.nan
+    sold = float((d["quantity"] * d["unit_cost"]).sum())
+    avg_stock = float(d.groupby("_t")["_stock_value"].sum().mean())
+    return sold / avg_stock if avg_stock else np.nan
+
+
+def _fn_sell_through(d):
+    if "_t" not in d.columns:
+        return np.nan
+    sold = float(d["quantity"].sum())
+    end = float(d[d["_t"] == d["_t"].max()]["stock_level"].sum())
+    return sold / (sold + end) if (sold + end) else np.nan
+
+
+def _fn_top_supplier_share(d):
+    val = "_purchase_value" if "_purchase_value" in d.columns else ("cost" if "cost" in d.columns else None)
+    if val is None:
+        return np.nan
+    g = d.groupby("supplier_id", observed=True)[val].sum()
+    return float(g.max() / g.sum()) if len(g) >= 2 and g.sum() else np.nan
+
+
+FN = {"growth": _fn_growth, "biggest_order_share": _fn_biggest_order_share, "loss_line_share": _fn_loss_line_share, "loss_amount": _fn_loss_amount,
+      "discount_margin_gap": _fn_discount_margin_gap, "repeat_rate": _fn_repeat_rate, "new_customers": _fn_new_customers, "quiet_customers": _fn_quiet_customers,
+      "top_customer_share": _fn_top_customer_share, "top_product_share": _fn_top_product_share, "products_losing": _fn_products_losing, "slow_movers": _fn_slow_movers,
+      "stock_turnover": _fn_stock_turnover, "sell_through": _fn_sell_through, "top_supplier_share": _fn_top_supplier_share}
+
+
 def _agg(d: pd.DataFrame, spec: tuple, keys):
     op = spec[0]
+    if op == "fn":
+        f = FN[spec[1]]
+        if keys is None:
+            return f(d)
+        if not len(d):
+            return pd.Series(dtype=float)
+        parts = {(k[0] if isinstance(k, tuple) and len(k) == 1 else k): f(g) for k, g in d.groupby(keys, observed=True, sort=True)}   # same on every pandas version
+        out = pd.Series(parts, dtype=float)
+        if isinstance(keys, list) and len(keys) > 1:
+            out.index = pd.MultiIndex.from_tuples(out.index)
+        return out
     g = d.groupby(keys, observed=True, sort=True) if keys is not None else None
     if op == "sum":
         return g[spec[1]].sum(min_count=1) if g is not None else d[spec[1]].sum(min_count=1)
@@ -245,7 +414,7 @@ def value(F: Frame, m: Metric, currency: str | None = None, mask: pd.Series | No
 
 
 def series(F: Frame, m: Metric, grain: str, currency: str | None = None) -> tuple[list[str], list]:
-    if not F.has_time:
+    if not F.has_time or not m.trend:
         return [], []
     d = F.df[_mask(F, m, currency) & F.df["_t"].notna()].copy()
     if not len(d):

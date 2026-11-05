@@ -327,7 +327,66 @@ def _derive(F: Frame) -> None:
         o = d.sort_values("_t")
         r = o.groupby(tick)["price_level"].pct_change() if tick else o["price_level"].pct_change()
         d["_ret"] = r.reindex(d.index)
+    _customer_flags(F)
+    if "_units_lost" in d and "unit_cost" in d:
+        d["_lost_value"] = d["_units_lost"] * d["unit_cost"]
     if "stock_level" in d and "unit_cost" in d:
         d["_stock_value"] = d["stock_level"] * d["unit_cost"]
     elif "stock_level" in d and "unit_price" in d:
         d["_stock_value_retail"] = d["stock_level"] * d["unit_price"]
+    if F.role == "snapshot":
+        stock_cover(F)
+
+
+def _customer_flags(F) -> None:
+    """Per-row flags the customer metrics need: the customer's first purchase, and customers who have gone quiet
+    (a regular buyer whose last purchase is more than twice their usual gap, and over 30 days, before the data ends)."""
+    d = F.df
+    if F.role not in ("transactions", "lines") or "customer_id" not in d or "_t" not in d or not d["_t"].notna().any():
+        return
+    ok = d["_ok"].astype(bool) if "_ok" in d else pd.Series(True, index=d.index)
+    t = d["_t"].where(ok & d["customer_id"].notna())
+    first = t.groupby(d["customer_id"]).transform("min")
+    d["_first_order"] = (t.dt.normalize() == first.dt.normalize()) & t.notna()
+    days = pd.DataFrame({"c": d["customer_id"], "day": t.dt.normalize()}).dropna().drop_duplicates()
+    if days.empty:
+        return
+    days = days.sort_values(["c", "day"])
+    gap = days.groupby("c")["day"].diff().dt.days
+    usual = gap.groupby(days["c"]).median()
+    visits = days.groupby("c").size()
+    last = days.groupby("c")["day"].max()
+    end = t.max().normalize()
+    since = (end - last).dt.days
+    quiet = (visits >= 3) & (since > np.maximum(2 * usual.reindex(last.index), 30))
+    d["_cust_quiet"] = d["customer_id"].map(quiet).fillna(False).astype(bool)
+
+
+def stock_cover(F) -> None:
+    """For a stock panel that also records units sold: days of stock left, dead stock and overstock per item, on the latest
+    row of each item only (so an average or a sum over rows is an average or sum over items)."""
+    d = F.df
+    if not {"stock_level", "quantity", "_t"} <= set(d.columns) or not d["_t"].notna().any():
+        return
+    items = [k for k in (F.item_keys or (["product_id"] if "product_id" in d else [])) if k in d]
+    if not items:
+        return
+    end = d["_t"].max()
+    recent = d[d["_t"] > end - pd.Timedelta(days=90)]
+    days = max(1, (end - max(recent["_t"].min(), end - pd.Timedelta(days=90))).days + 1)
+    sold = recent.groupby(items, observed=True)["quantity"].sum()
+    latest_idx = d.sort_values("_t").groupby(items, observed=True).tail(1).index
+    lat = d.loc[latest_idx, items + ["stock_level"]].copy()
+    key = pd.MultiIndex.from_frame(lat[items]) if len(items) > 1 else lat[items[0]]
+    s = sold.reindex(key).to_numpy() if len(items) > 1 else sold.reindex(lat[items[0]]).to_numpy()
+    rate = np.nan_to_num(s, nan=0.0) / days
+    cover = np.where(rate > 0, lat["stock_level"].to_numpy() / np.where(rate > 0, rate, 1), np.inf)
+    d["_cover_days"] = np.nan
+    d.loc[latest_idx, "_cover_days"] = np.where(np.isfinite(cover), cover, np.nan)
+    if "_stock_value" in d:
+        val = d.loc[latest_idx, "_stock_value"].to_numpy()
+        dead = (lat["stock_level"].to_numpy() > 0) & (np.nan_to_num(s, nan=0.0) <= 0)
+        over = np.isfinite(cover) & (cover > 180)
+        d["_dead_value"] = np.nan; d["_over_value"] = np.nan
+        d.loc[latest_idx, "_dead_value"] = np.where(dead, val, 0.0)
+        d.loc[latest_idx, "_over_value"] = np.where(over, val, 0.0)
