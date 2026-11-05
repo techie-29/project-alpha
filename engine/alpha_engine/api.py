@@ -94,7 +94,7 @@ def analyze(req: AnalyzeRequest, x_engine_key: str | None = Header(default=None)
 
     def run():
         try:
-            from .investigate.ai import make_investigator
+            from .hybrid import make_investigator
             provider = default_provider() if req.use_ai else None
             pipeline.analyze(req.analysis_id, files, req.confirmations, DATA_DIR, provider,
                              lambda s, p: JOBS[req.analysis_id].update(stage=s, progress=p),
@@ -135,14 +135,26 @@ class AskRequest(BaseModel):
 @app.post("/v1/ask")
 def ask(req: AskRequest, x_engine_key: str | None = Header(default=None)):
     _auth(x_engine_key)
-    from .investigate.ask import ask as run_ask
+    from .hybrid import ask as run_ask
+    from .llm import ProviderError
     provider = default_provider()
     if provider.name == "none":
-        return {"answer": None, "note": "The AI helper is not set up. Add OPENROUTER_API_KEY (or GEMINI_API_KEY) to engine/.env to use Ask Alpha."}
-    rp = Path(DATA_DIR) / "analyses" / Path(req.analysis_id).name / "report.json"
+        return {"short_answer": None, "note": "The AI helper is not set up. Add OPENROUTER_API_KEY (or GEMINI_API_KEY) to engine/.env to use Ask Alpha."}
+    question = (req.question or "").strip()[:500]
+    if len(question) < 3:
+        return {"short_answer": None, "note": "Please type a question."}
+    base = Path(DATA_DIR) / "analyses" / Path(req.analysis_id).name
     import json
-    report = json.loads(rp.read_text(encoding="utf-8")) if rp.exists() else None
-    return run_ask(provider, DATA_DIR, req.analysis_id, req.question, report, req.history)
+    report = json.loads((base / "report.json").read_text(encoding="utf-8")) if (base / "report.json").exists() else None
+    if report is None or not (base / "state.pkl.gz").exists():
+        return {"short_answer": None, "note": "The data for this analysis is not available any more. Please run the analysis again."}
+    frames = pipeline.load_state(base / "state.pkl.gz")
+    try:
+        out = run_ask(provider, frames, report, question, req.history)
+    except ProviderError as e:
+        return {"short_answer": None, "note": f"The AI helper could not answer: {str(e)[:240]}"}
+    out["usage"] = provider.meter.summary()
+    return out
 
 
 @app.get("/v1/jobs/{analysis_id}")

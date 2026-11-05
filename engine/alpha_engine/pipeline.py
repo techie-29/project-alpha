@@ -194,12 +194,16 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
                    "Statistical minimums: 30 rows per group, 40 rows per combination, 12 months for trends, 2 full years for seasonality."],
         "ai": {"provider": provider.name, "investigation": None},
     }
-    if investigate is not None:
-        progress("The AI helper is checking leads and asking its own questions", 92)
-        try:
-            report = investigate(report, frames)
-        except Exception as e:
-            report["ai"]["investigation"] = {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+    progress("Choosing what to look into" if investigate is not None else "Checking the findings", 92)
+    if investigate is None:                                   # no AI: the engine's own findings, through the same quality gates
+        from .hybrid import make_investigator
+        investigate = make_investigator(None, data_dir)
+    try:
+        report = investigate(report, frames, tables=tables, model=model)
+    except TypeError:                                         # an older investigator that only takes (report, frames)
+        report = investigate(report, frames)
+    except Exception as e:
+        report["ai"]["investigation"] = {"error": f"{type(e).__name__}: {str(e)[:160]}"}
     report["ai"]["usage"] = provider.meter.summary() if getattr(provider, "meter", None) else None
     if getattr(provider, "disabled", None):
         report["ai"]["stopped"] = provider.disabled
