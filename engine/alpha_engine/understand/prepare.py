@@ -65,11 +65,19 @@ def _drop_total_rows(df: pd.DataFrame, notes: list[str]) -> pd.DataFrame:
     return df
 
 
-SECONDARY_DATE = re.compile(r"(expir|\bexp\b|best before|use by|\bdue\b|deadline|birth|\bdob\b|joined|join date|signup|sign up|registered|"
+SECONDARY_DATE = re.compile(r"(expir|\bexp\b|best before|use by|\bdue\b|deadline|birth|\bdob\b|\bdoj\b|join(ed|ing)?\b|enrol|signup|sign up|registered|"
                             r"member since|since|\bstart|\bend\b|valid|renewal|added|updated|modified|last|expected|planned|promised|"
                             r"delivered|delivery|ship|dispatch|received|return|closed|resolved|paid|payment date|settle)", re.I)
 EVENT_DATE = re.compile(r"(\bdate\b|order|sale|txn|transaction|invoice|bill|posted|entry|booking|booked|visit|appointment|created|timestamp|"
                         r"\bday\b|\bdt\b|period|month|week|quarter|as of|as on|snapshot|count)", re.I)
+
+
+# dates that describe the row itself (when it expires, when the customer joined, when a plan starts or is due) - never 'when it happened'.
+# 'Ship date' or 'paid date' are left out on purpose: they are real events, and a log may have no other date.
+DESCRIBES_ROW = re.compile(r"(expir|\bexp\b|best before|use by|\bdue\b|deadline|birth|\bdob\b|\bdoj\b|join(ed|ing)?\b|enrol|signup|sign up|sign_up|registered|"
+                           r"registration|member since|since|\bstart|\bend\b|valid|renewal|expected|planned|promised|last|updated|modified|added)", re.I)
+EVENT_STRONG = re.compile(r"(order|sale|txn|transaction|invoice|bill|posted|entry|booking|booked|visit|appointment|check.?in|timestamp|"
+                          r"\bday\b|\bdt\b|period|month|week|quarter|as of|as on|snapshot|count|purchase|po\b|voucher)", re.I)
 
 
 def _settle_dates(df: pd.DataFrame, roles: dict, confirmed: dict, p: "Prepared") -> None:
@@ -116,7 +124,8 @@ def _build_time(df: pd.DataFrame, roles: dict, confirmed: dict, p: Prepared) -> 
         scores = {c: _axis_score(c, roles[c], df[c]) for c in time_cols}
         time_cols.sort(key=lambda c: -scores[c])
         c = confirmed.get("__time_col__") if confirmed.get("__time_col__") in time_cols else time_cols[0]
-        if c != confirmed.get("__time_col__") and (scores[c] < -1.5 or (SECONDARY_DATE.search(c) and not EVENT_DATE.search(c))):
+        if c != confirmed.get("__time_col__") and (scores[c] < -1.5 or (SECONDARY_DATE.search(c) and not EVENT_DATE.search(c))
+                                                     or (DESCRIBES_ROW.search(c) and not EVENT_STRONG.search(c))):
             # the only dates are expiry / birth / due-type dates: they describe the row, they are not when it happened
             p.notes.append(f"'{c}' holds {_kind_word(c)} dates, not the date things happened, so it is used as a detail of each row (e.g. days until it), not as the timeline.")
             return

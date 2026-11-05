@@ -16,6 +16,8 @@ import pandas as pd
 from .concepts import (CONCEPTS, NUMBER_CONCEPTS, KEY_CONCEPTS, GROUP_CONCEPTS, DATE_CONCEPTS, STATUS_WORDS, CHANNEL_WORDS,
                        PAYMENT_WORDS, MOVEMENT_WORDS, TICKER_VALUE, GENDER_VALUES, CURRENCIES, REGION_WORDS, SENTIMENT_WORDS, YES_NO_VALUES, ID_HEAD, PERSON_NAME, ALWAYS_PII, ID_VALUE)
 
+from ..understand.roles import id_header
+
 FEW_ENTITY_KEYS = {"site_id", "employee_id", "supplier_id"}
 LOCATION_TOKEN = re.compile(r"(^|_|\s)(city|state|country|region|zone|district|province|postal|zip|pincode|pin_code|territory)($|_|\s|code)", re.I)     # entities that are often few (6 warehouses, 12 staff)
 
@@ -29,20 +31,42 @@ SAMPLE = 4000
 # ---------------- names ----------------
 def tokens(name: str) -> list[str]:
     s = re.sub(r"([a-z])([A-Z])", r"\1 \2", str(name))
-    s = re.sub(r"[%#]", " pct ", s)
+    s = s.replace("#", " number ").replace("№", " number ").replace("°", " ")
+    s = re.sub(r"%", " pct ", s)
     return [t for t in re.split(r"[^A-Za-z0-9]+", s.lower()) if t]
 
 
+# abbreviations found in real exports. Both sides are mapped to the full word before comparing, so 'Net Amt' matches 'net amount'
+# and 'Qty Ordered' still matches the synonym 'qty ordered'.
+ABBR = {"amt": "amount", "qty": "quantity", "qnty": "quantity", "qtty": "quantity", "disc": "discount", "dis": "discount", "val": "value", "cust": "customer",
+        "prod": "product", "desc": "description", "avg": "average", "tot": "total", "inv": "invoice", "txn": "transaction", "trx": "transaction",
+        "dt": "date", "yr": "year", "pct": "percent", "perc": "percent", "no": "number", "num": "number", "nr": "number", "rev": "revenue",
+        "cat": "category", "subcat": "subcategory", "dept": "department", "wh": "warehouse", "loc": "location", "pmt": "payment", "pymt": "payment",
+        "exp": "expiry", "mfg": "manufacturing", "sp": "selling", "cp": "cost", "mrp": "mrp", "uom": "unit", "pcs": "pieces", "emp": "employee",
+        "supp": "supplier", "vend": "vendor", "px": "price", "prc": "price", "nm": "name", "cd": "code", "ord": "order", "ship": "shipping", "del": "delivery", "chg": "charge", "chrg": "charge"}
+
+
+def _canon(x: str) -> str:
+    return ABBR.get(x, x)
+
+
 def _eq(t: str, u: str) -> bool:
-    """t = synonym token, u = header token. Allows abbreviations in the header (cust ~ customer, qty ~ quantity's own synonym),
-    plurals (unit ~ units) and small typos, but not a synonym being a mere prefix of a longer header word (sales != salesperson)."""
-    if t == u:
+    """t = synonym token, u = header token. Allows known abbreviations (amt = amount), short forms in the header (cust ~ customer),
+    plurals (unit ~ units) and small typos, but not near-words (plan != plant, counter != country) or a synonym being a mere
+    prefix of a longer header word (sales != salesperson)."""
+    if t == u or _canon(t) == _canon(u):
         return True
-    if len(u) >= 3 and t.startswith(u) and len(u) >= 0.4 * len(t):
+    if min(len(t), len(u)) >= 3 and (t in (u + "s", u + "es") or u in (t + "s", t + "es")):
         return True
-    if len(t) >= 4 and u.startswith(t) and len(u) - len(t) <= 2:
+    if len(u) >= 3 and t.startswith(u) and len(t) - len(u) >= 2 and len(u) >= 0.4 * len(t):
         return True
-    return min(len(t), len(u)) >= 5 and SequenceMatcher(None, t, u).ratio() >= 0.84
+    if len(t) >= 4 and u.startswith(t) and 1 <= len(u) - len(t) <= 3 and u[len(t):] in ("s", "es", "ed", "d", "ing"):
+        return True
+    return min(len(t), len(u)) >= 5 and SequenceMatcher(None, t, u).ratio() >= 0.86
+
+
+# one-word synonyms so common that they say little on their own ('Type', 'Total', 'Amount', 'Value'): a match counts less
+GENERIC = {"type", "class", "total", "amount", "value", "rate", "item", "line", "name", "group", "kind", "mode", "level", "index", "balance", "score", "share", "days", "bill"}
 
 
 def name_score(col: str, synonyms) -> tuple[float, str | None]:
@@ -62,6 +86,8 @@ def name_score(col: str, synonyms) -> tuple[float, str | None]:
         r = SequenceMatcher(None, whole, syn).ratio()
         if r > 0.86:
             sc = max(sc, r)
+        if len(st) == 1 and st[0] in GENERIC:
+            sc *= 0.6
         if sc > best:
             best, why = sc, syn
     return min(best, 1.0), why
@@ -101,6 +127,8 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
             sc = 0.45 + (0.3 if st["dec2"] >= 0.4 else 0.15 if st["med"] >= 20 else 0.0)
             return sc, "positive amounts" + (" with cents" if st["dec2"] >= 0.4 else "")
         if cid in ("discount", "tax"):
+            if cid == "discount" and st["max"] <= 1 and st["int"] < 0.98:
+                return 0.1, "all values are below 1: a share, not an amount"
             return (0.55 if pos else 0.1), ("non-negative amounts, often zero" if st["zero"] > 0.2 else "non-negative amounts")
         if cid == "profit":
             return (0.75 if 0.005 < st["neg"] < 0.6 else 0.45), ("can be negative, like profit" if st["neg"] > 0.005 else "amounts")
@@ -124,7 +152,8 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
             in1, in100 = st["min"] >= -1.5 and st["max"] <= 1.5, st["min"] >= -150 and st["max"] <= 150
             return (0.7 if (in1 or in100) else 0.1), "a percentage range"
         if cid == "rating":
-            if st["min"] < 0 or st["max"] > 10 or st["nu"] > 101:
+            # a rating lives on a scale like 1-5 or 0-10. Values that are all below 1 (0.05, 0.1) are shares, not ratings.
+            if st["min"] < 0 or st["max"] > 10 or st["max"] <= 1 or st["nu"] > 101:
                 return 0.0, None
             return (0.85 if st["max"] <= 5 else 0.6), f"values between {st['min']:g} and {st['max']:g}"
         if cid in ("duration", "promised_duration"):
@@ -210,7 +239,7 @@ def candidates_for(role: str, info: dict, col: str = "") -> list:
         return KEY_CONCEPTS + [CONCEPTS["personal"], CONCEPTS["location"], CONCEPTS["name_label"]]
     if role == "category":
         out = GROUP_CONCEPTS[:]
-        keyish = bool(ID_HEAD.search(col)) or len(tokens(col)) == 1
+        keyish = bool(ID_HEAD.search(col)) or id_header(col) or len(tokens(col)) == 1
         out += [k for k in KEY_CONCEPTS if k.id in FEW_ENTITY_KEYS or ((keyish or k.id == "entity_id") and info.get("unique", 0) >= 20)]
         return out + [CONCEPTS["personal"], CONCEPTS["free_text"]]
     if role == "flag":
@@ -475,6 +504,40 @@ def _stock_and_market_rules(df, p, cols: dict, nst: dict, role: dict, fhint: dic
                 _set(v, "due_date", "mostly later than the data ends: looks like a due date", 0.55)
 
 
+def _context_rules(df, cols: dict, nst: dict, role: dict, fhint: dict) -> list[str]:
+    """Settle words whose meaning depends on what the file is about. Returns plain notes for the reading page.
+    - selling or buying: 'qty ordered' is units sold in a sales file but units ordered from suppliers in a purchase file;
+      'party' is the customer in a sales register and the supplier in a purchase register;
+    - a discount written as a share (0.05) is a discount %, not an amount;
+    - an order file whose only money column is a generic 'value' or 'payment' column: that column is the sale."""
+    notes = []
+    has = {v["concept"] for v in cols.values()}
+    tok = lambda c: set(tokens(c))
+    purchase = fhint.get("purchase", 0) >= 0.6 or ("supplier_id" in has and "customer_id" not in has and has & {"units_ordered", "units_received", "unit_cost", "cost"} != set()) \
+        or ("units_received" in has and "customer_id" not in has)
+    selling = not purchase and (has & {"revenue", "profit", "customer_id", "gross_revenue"} != set()) and role.get("role") in ("transactions", "lines", "periodic")
+    for c, v in cols.items():
+        if v.get("source") in ("owner", "memory"):
+            continue
+        st = nst.get(c) or {}
+        if selling and v["concept"] == "units_ordered" and "units_received" not in has:
+            _set(v, "quantity", "in a sales file, the quantity a customer ordered is the units sold", 0.7)
+        elif purchase and v["concept"] == "quantity" and tok(c) & {"ordered", "order", "po", "indent", "requested"}:
+            _set(v, "units_ordered", "in a purchase file, the ordered quantity is units ordered from the supplier", 0.7)
+        elif purchase and v["concept"] == "customer_id" and tok(c) & {"party", "debtor", "account"}:
+            _set(v, "supplier_id", "in a purchase file, the party is the supplier", 0.7)
+        if v["concept"] == "discount" and st and st.get("max", 9) <= 1 and st.get("min", -1) >= 0 and st.get("int", 1) < 0.98:
+            _set(v, "discount_pct", f"values run from {st['min']:g} to {st['max']:g}: a share of the price (discount %), not an amount", 0.75)
+    has = {v["concept"] for v in cols.values()}
+    if role.get("role") in ("transactions", "lines") and "revenue" not in has and "gross_revenue" not in has:
+        cand = [c for c, v in cols.items() if v["concept"] == "money_other" and nst.get(c) and nst[c]["neg"] <= 0.02 and v.get("source") == "auto"]
+        if cand:
+            best = max(cand, key=lambda c: nst[c]["med"])
+            _set(cols[best], "revenue", "the only positive money column in a log of orders: read as the sale amount", 0.6)
+            notes.append(f"'{best}' was read as the sale amount because the file has no other sales column.")
+    return notes
+
+
 # ---------------- main ----------------
 def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dict:
     """Returns {"columns": {col: {...}}, "file": {...}, "identities": [...]}"""
@@ -513,7 +576,13 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
     cols: dict[str, dict] = {}
     for c, info in usable.items():
         cands = candidates_for(info["role"], info, c)
-        if is_pii(c):
+        pii = is_pii(c)
+        if pii and tokens(c) == ["name"] and c in cst and cst[c]["vals"]:
+            # a column headed 'Name' that holds codes like '#1001' or 'SO-2231' is a document number, not a person's name
+            coded = sum(1 for v in cst[c]["vals"][:40] if re.fullmatch(r"#\s*\d+|[A-Z]{1,5}[-/]?\d{3,}|\d{3,}", v.strip())) / max(1, min(40, len(cst[c]["vals"])))
+            if coded >= 0.8:
+                pii = False
+        if pii:
             cands = [CONCEPTS["personal"]] + [x for x in cands if x.kind == "key"]
         scored = []
         for con in cands:
@@ -522,7 +591,7 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
             if vs == 0.0 and con.id not in ("personal",):
                 continue
             if con.id == "personal":
-                vs = 0.9 if is_pii(c) else 0.0
+                vs = 0.9 if pii else 0.0
                 if vs == 0:
                     continue
             s = W_NAME * ns + W_VALUE * vs
@@ -535,8 +604,9 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
             elif con.id == "age" and ns < 0.3:
                 s = 0.1                                    # 18..80 whole numbers are only an age if the header says so
             elif ns < 0.3:                                 # value evidence alone: weaker, unless very specific
-                s = vs * 0.8 if vs >= 0.85 else (vs * 0.45 if vs >= 0.6 else 0.1)
-            if con.kind == "key" and con.id != "entity_id" and not ID_HEAD.search(c) and ns < 0.99 and not (vs >= 0.6 and ns >= 0.3):
+                # values alone may suggest a meaning, but must not outvote a header that clearly names another one
+                s = vs * 0.8 if vs >= 0.9 else (vs * 0.6 if vs >= 0.85 else (vs * 0.45 if vs >= 0.6 else 0.1))
+            if con.kind == "key" and con.id != "entity_id" and not (ID_HEAD.search(c) or id_header(c)) and ns < 0.99 and not (vs >= 0.6 and ns >= 0.3):
                 s *= 0.6                                   # a key needs an id-like header or a full name match
             if con.kind == "key" and LOCATION_TOKEN.search(c):
                 s *= 0.5                                   # customer_city is a place, not a customer
@@ -576,6 +646,15 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
                 v.update(concept="stock_level", label=CONCEPTS["stock_level"].label, confidence=max(v["confidence"], 0.7),
                          reasons=[f"a count in a {role['role']} file is a level (stock on hand), not something to add up over time"] + v["reasons"][:2])
     _stock_and_market_rules(df, p, cols, nst, role, fhint)
+    context_notes = _context_rules(df, cols, nst, role, fhint)
+    for i in ids:
+        if i["type"] in ("difference", "net"):
+            sub = i["cols"][1]
+            if sub in cols and cols[sub]["concept"] == "discount_pct" and cols[sub].get("source") == "auto":
+                _set(cols[sub], "discount", f"{i['text']}: it is taken off an amount, so it is an amount too", 0.8)
+    tc = getattr(p, "time_col", None)
+    if tc in cols and (cols[tc]["concept"] in ("done_date", "due_date") or (cols[tc]["concept"] == "signup_date" and role["role"] in ("transactions", "lines"))) and not any(v["concept"] == "event_date" for k, v in cols.items() if k != tc):
+        _set(cols[tc], "event_date", "the file's timeline: the date each row happened (e.g. the date goods were received)", 0.75)
     if role["role"] == "master" and role.get("entity") == "product":
         for c, v in cols.items():
             if v["concept"] == "cost":
@@ -597,7 +676,8 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
     # unique id in a transaction log is the order / transaction
     if role["role"] == "transactions":
         for c, v in cols.items():
-            if CONCEPTS[v["concept"]].kind == "key" and df[c].nunique() >= 0.9 * df[c].notna().sum() and v["concept"] not in ("order_id",) and v["confidence"] < 0.8:
+            named = nscore(c, v["concept"]) >= 0.8          # 'Customer ID', 'Account ID': the header already says what it is
+            if CONCEPTS[v["concept"]].kind == "key" and df[c].nunique() >= 0.9 * df[c].notna().sum() and v["concept"] not in ("order_id",) and v["confidence"] < 0.8 and not named:
                 v.update(concept="order_id", label=CONCEPTS["order_id"].label, confidence=max(v["confidence"], 0.7), reasons=["unique per row in a transaction log"] + v["reasons"][:2])
     # a number that never changes within a customer (or product) describes that customer, e.g. lifetime value or age.
     # It must be averaged over customers, never added up across their orders.
@@ -645,8 +725,10 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
             prev = cols.get(c, {})
             cols[c] = {"concept": cid, "label": CONCEPTS[cid].label, "confidence": 1.0, "reasons": ["you confirmed this"], "alternatives": prev.get("alternatives", []), "source": "owner"}
     for v in cols.values():
-        v["needs_confirmation"] = v["source"] == "auto" and (v["confidence"] < 0.55 or v["concept"] == "entity_id") and v["concept"] not in ("number", "group", "personal", "free_text")
-    return {"columns": cols, "file": role, "identities": ids}
+        v["needs_confirmation"] = v["source"] == "auto" and v["concept"] not in ("number", "group", "personal", "free_text") and (
+            v["confidence"] < 0.55 or v["concept"] in ("entity_id", "money_other")
+            or (CONCEPTS[v["concept"]].kind == "date" and v["concept"] != "event_date" and v["confidence"] < 0.65))
+    return {"columns": cols, "file": role, "identities": ids, "notes": context_notes}
 
 
 def unify_links(models: dict[str, dict], links: list) -> None:

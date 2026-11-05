@@ -17,7 +17,27 @@ from .dates import read_dates, DATE_HEAD as DATE_HEAD_WIDE
 STRONG_ID = re.compile(r"(zip|postal|pincode|pin_code|phone|mobile|uuid|guid|sku|barcode|ssn|aadhaar|passport)", re.I)
 ID_TOKEN = re.compile(r"(^|[_\s\-])(id|code|no|num|number|key|ref|reference)($|[_\s\-])|[a-z]Id$", re.I)
 MONEY = re.compile(r"(sales|revenue|amount|price|cost|profit|total|fee|tax|discount|value|salary|spend|income|expense|charge|payment|balance|fare)", re.I)
-COUNT = re.compile(r"(qty|quantity|units|count|number_of|items|points|visits|orders|views|clicks|sessions|days|volume|shares|traded|trades|footfall)", re.I)
+COUNT = re.compile(r"(qty|quantity|units|count|number_of|items|points|visits|orders|views|clicks|sessions|days|volume|shares|traded|trades|footfall|"
+                   r"impressions|conversions|reach|leads|signups|nights|seats|guests|covers)", re.I)
+# Header words that name an identifier when they are the LAST word ('Item Code', 'Bill No.', 'StockCode'), and document words that
+# are an identifier on their own ('Invoice', 'Voucher'). Used with the values: whole numbers under such a header are codes, not amounts.
+ID_LAST = {"id", "code", "no", "num", "nr", "number", "key", "ref", "reference", "sku", "uid", "uuid", "guid", "barcode", "ean", "upc", "isin"}
+DOC_WORDS = {"invoice", "bill", "voucher", "receipt", "order", "booking", "ticket", "transaction", "txn", "po", "challan", "docket", "awb"}
+
+
+def header_tokens(name: str) -> list[str]:
+    s = re.sub(r"([a-z])([A-Z])", r"\1 \2", str(name))
+    return [t for t in re.split(r"[^A-Za-z0-9]+", s.lower()) if t]
+
+
+def id_header(name: str) -> bool:
+    """'Order ID', 'Item Code', 'Bill No.', 'StockCode', 'Invoice' - but not 'Number of items' or 'Phone number' (personal, handled elsewhere)."""
+    t = header_tokens(name)
+    if not t:
+        return False
+    if t[-1] in ID_LAST and not (t[-1] == "number" and len(t) >= 3 and t[-2] == "of"):
+        return True
+    return len(t) == 1 and t[0] in DOC_WORDS
 PCT = re.compile(r"(pct|percent|percentage|margin|rate|ratio|share)", re.I)
 RATING = re.compile(r"(rating|score|stars|grade|rank)", re.I)
 DATE_HEAD = re.compile(r"(date|timestamp|created|updated|datetime)", re.I)
@@ -171,6 +191,8 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
             sid += 0.7; reasons.append("Header names a code/identifier (zip, phone, sku ...).")
         if hint_id and nu > 60:
             sid += 0.5; reasons.append("Header says id/code and there are many distinct values.")
+        elif ints and id_header(name) and nu > 20 and not (MONEY.search(name) or COUNT.search(name)):
+            sid += 0.6; reasons.append("Header names a document or code (invoice, bill no., item code) and the values are whole numbers.")
         if ints and ratio >= 0.9 and nn > 50 and not (MONEY.search(name) or COUNT.search(name) or PCT.search(name)):
             sid += 0.35; reasons.append("Whole numbers that are almost all different.")
         smeas = 0.5
@@ -198,6 +220,8 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
             sid += 0.7; reasons.append("Header names a code/identifier.")
         if hint_id and nu > 60:
             sid += 0.5; reasons.append("Header says id/code and there are many distinct values.")
+        elif id_header(name) and nu > 20:
+            sid += 0.5; reasons.append("Header names a document or code (invoice, bill no., item code).")
         if pat_id:
             sid += 0.45; reasons.append("Values follow an id pattern like ABC-000123.")
         if nu >= 0.5 * nn and v.str.len().median() <= 20 and not low_card:
