@@ -30,3 +30,13 @@ def test_random_percentages_are_mostly_refused():
         t = f"The share reached {v}% last year."
         ok_new += verify_strict(t, [RES])[0]
     assert ok_new / n <= 0.15, ok_new / n
+
+
+def test_hyphenated_points_and_sums_of_two_values():
+    r = {"overall": 0.07, "rows": [{"group": "High", "value": -0.0039, "n": 400}, {"group": "Medium", "value": 0.0938, "n": 600}]}
+    q = {"rows": [{"group": "HP", "value": -14563.71}, {"group": "RJ", "value": -14135.88}]}
+    assert verify_strict("High margin is -0.39% vs Medium 9.38%, a 9.77-point gap.", [r])[0]
+    assert not verify_strict("High margin is -0.39% vs Medium 9.38%, a 9.9-point gap.", [r])[0]
+    assert verify_strict("They lose 28,699.59 together.", [q])[0]
+    assert not verify_strict("They lose 28,999.59 together.", [q])[0]
+    assert not verify_strict("It is 99.9% better.", [r])[0]
