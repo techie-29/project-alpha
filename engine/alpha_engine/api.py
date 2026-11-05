@@ -94,11 +94,9 @@ def analyze(req: AnalyzeRequest, x_engine_key: str | None = Header(default=None)
 
     def run():
         try:
-            from .investigate.ai import make_investigator
-            provider = default_provider() if req.use_ai else None
-            pipeline.analyze(req.analysis_id, files, req.confirmations, DATA_DIR, provider,
-                             lambda s, p: JOBS[req.analysis_id].update(stage=s, progress=p),
-                             make_investigator(provider, DATA_DIR), req.preferences, req.memory)
+            from .ai_analyst import analyze as ai_analyze
+            provider = default_provider()                 # this version is AI-driven: the AI is always used when a key is set
+            ai_analyze(req.analysis_id, files, DATA_DIR, provider, lambda s, p: JOBS[req.analysis_id].update(stage=s, progress=p))
             JOBS[req.analysis_id].update(status="done", progress=100, stage="Done")
         except Exception as e:                      # report a plain-language failure, never a stack trace
             traceback.print_exc()
@@ -135,14 +133,24 @@ class AskRequest(BaseModel):
 @app.post("/v1/ask")
 def ask(req: AskRequest, x_engine_key: str | None = Header(default=None)):
     _auth(x_engine_key)
-    from .investigate.ask import ask as run_ask
+    from .ai_analyst import ask as run_ask
+    from .ai_analyst.pipeline import load_state
+    from .llm import ProviderError
     provider = default_provider()
     if provider.name == "none":
-        return {"answer": None, "note": "The AI helper is not set up. Add OPENROUTER_API_KEY (or GEMINI_API_KEY) to engine/.env to use Ask Alpha."}
-    rp = Path(DATA_DIR) / "analyses" / Path(req.analysis_id).name / "report.json"
-    import json
-    report = json.loads(rp.read_text(encoding="utf-8")) if rp.exists() else None
-    return run_ask(provider, DATA_DIR, req.analysis_id, req.question, report, req.history)
+        return {"short_answer": None, "note": "The AI helper is not set up. Add OPENROUTER_API_KEY (or GEMINI_API_KEY) to engine/.env to use Ask Alpha."}
+    question = (req.question or "").strip()[:500]
+    if len(question) < 3:
+        return {"short_answer": None, "note": "Please type a question."}
+    st = load_state(Path(DATA_DIR) / "analyses" / Path(req.analysis_id).name)
+    if not st:
+        return {"short_answer": None, "note": "The data for this analysis is not available any more. Please run the analysis again."}
+    try:
+        out = run_ask(provider, st["tables"], st["setup"], st["profile"], question, req.history)
+    except ProviderError as e:
+        return {"short_answer": None, "note": f"The AI helper could not answer: {str(e)[:240]}"}
+    out["usage"] = provider.meter.summary()
+    return out
 
 
 @app.get("/v1/jobs/{analysis_id}")

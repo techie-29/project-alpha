@@ -114,3 +114,104 @@ def run(code: str, df, timeout: int = 25, memory_mb: int = 3000, cpu_s: int = 20
         return {"ok": True, "result": json.loads(p.stdout.split("@@RESULT@@", 1)[1])}
     except Exception:
         return {"ok": False, "error": "The calculation returned something unreadable."}
+
+
+# ------------------------------------------------------------------------------------------------ batch mode (full-AI brain)
+BATCH_RUNNER = r'''
+import sys, json, pickle, ast, time
+mem, cpu = int(sys.argv[2]), int(sys.argv[3])
+try:
+    import resource
+    resource.setrlimit(resource.RLIMIT_AS, (mem, mem)); resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu)); resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
+except ImportError:
+    pass
+import pandas as pd, numpy as np
+payload = pickle.load(open(sys.argv[1], "rb"))
+B = __builtins__.__dict__ if hasattr(__builtins__, "__dict__") else __builtins__
+SAFE = {k: B[k] for k in ["abs","all","any","bool","dict","enumerate","float","int","len","list","max","min","range","round","set","sorted","str","sum",
+        "tuple","zip","isinstance","map","filter","reversed","divmod","pow","ValueError","KeyError","Exception","hasattr"]}
+SAFE.update({"True": True, "False": False, "None": None})
+def conv(o, depth=0):
+    if depth > 6: return str(o)[:80]
+    if isinstance(o, pd.DataFrame):
+        o = o.head(40)
+        return {"columns": [str(c) for c in o.columns], "rows": [[conv(v, depth + 1) for v in r] for r in o.itertuples(index=False, name=None)], "shown": len(o)}
+    if isinstance(o, pd.Series):
+        return {str(k): conv(v, depth + 1) for k, v in o.head(40).items()}
+    if isinstance(o, dict):
+        return {str(k): conv(v, depth + 1) for k, v in list(o.items())[:40]}
+    if isinstance(o, (list, tuple, set)):
+        return [conv(v, depth + 1) for v in list(o)[:40]]
+    if isinstance(o, (np.integer,)): return int(o)
+    if isinstance(o, (np.floating, float)): return None if not np.isfinite(o) else round(float(o), 6)
+    if isinstance(o, (np.bool_, bool)): return bool(o)
+    if isinstance(o, (int, str)) or o is None: return o if not isinstance(o, str) else o[:200]
+    if isinstance(o, (pd.Timestamp, pd.Period)): return str(o)[:19]
+    return str(o)[:80]
+tables = payload["tables"]
+base = {"pd": pd, "np": np, "tables": tables, "df": tables.get(payload["main"]) if payload["main"] in tables else next(iter(tables.values()))}
+out = {"setup": None, "results": {}}
+if payload["setup"]:
+    env = {"__builtins__": SAFE, **base}
+    try:
+        exec(compile(ast.parse(payload["setup"]), "<setup>", "exec"), env)
+        base = {k: env[k] for k in env if k not in ("__builtins__",) and not k.startswith("_")}
+        out["setup"] = {"ok": True}
+    except Exception as e:
+        out["setup"] = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:240]}"}
+for rid, code in payload["snippets"]:
+    t0 = time.time()
+    env = {"__builtins__": SAFE, **{k: (v.copy() if isinstance(v, pd.DataFrame) else ({kk: vv.copy() for kk, vv in v.items()} if k == "tables" else v)) for k, v in base.items()}, "result": None}
+    try:
+        exec(compile(ast.parse(code), "<" + rid + ">", "exec"), env)
+        out["results"][rid] = {"ok": True, "result": conv(env.get("result")), "seconds": round(time.time() - t0, 2)}
+    except Exception as e:
+        out["results"][rid] = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:240]}"}
+sys.stdout.write("\n@@RESULT@@" + json.dumps(out))
+'''
+
+
+def run_batch(setup: str | None, snippets: list[tuple[str, str]], tables: dict, main: str | None = None, timeout: int = 180,
+              memory_mb: int = 4000, cpu_s: int = 150) -> dict:
+    """Run the AI's preparation code once, then each snippet on its own copy of the prepared tables, in one restricted
+    process. Every piece of code passes the same allow-list check first. Returns {"setup": {...}|None, "results": {id: {...}}}."""
+    res: dict = {"setup": None, "results": {}}
+    ok_snips = []
+    if setup:
+        try:
+            check(setup)
+        except Rejected as e:
+            res["setup"] = {"ok": False, "error": f"not allowed: {e}"}
+            setup = None
+    for rid, code in snippets:
+        try:
+            check(code)
+            ok_snips.append((rid, code))
+        except Rejected as e:
+            res["results"][rid] = {"ok": False, "error": f"not allowed: {e}"}
+    if not ok_snips and not setup:
+        return res
+    with tempfile.TemporaryDirectory() as d:
+        pk = os.path.join(d, "in.pkl")
+        with open(pk, "wb") as fh:
+            pickle.dump({"setup": setup, "snippets": ok_snips, "tables": tables, "main": main}, fh, protocol=5)
+        try:
+            p = subprocess.run([sys.executable, "-I", "-c", BATCH_RUNNER, pk, str(memory_mb * 1024 * 1024), str(cpu_s)], capture_output=True, text=True,
+                               timeout=timeout, cwd=d, env=_child_env())
+        except subprocess.TimeoutExpired:
+            for rid, _ in ok_snips:
+                res["results"].setdefault(rid, {"ok": False, "error": "the calculations took too long and were stopped"})
+            return res
+    if p.returncode != 0 or "@@RESULT@@" not in p.stdout:
+        last = (p.stderr.strip().splitlines() or ["failed"])[-1][:200]
+        for rid, _ in ok_snips:
+            res["results"].setdefault(rid, {"ok": False, "error": f"the calculation process failed: {last}"})
+        return res
+    try:
+        got = json.loads(p.stdout.split("@@RESULT@@", 1)[1])
+    except Exception:
+        return res
+    if got.get("setup") is not None:
+        res["setup"] = got["setup"]
+    res["results"].update(got.get("results") or {})
+    return res

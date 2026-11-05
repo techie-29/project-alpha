@@ -53,14 +53,11 @@ def test_end_to_end_through_the_api(env):
     j = wait(c, "a1")
     assert j["status"] == "done", j
     rep = c.get("/v1/reports/a1", headers=H).json()
-    assert rep["version"] == 2
-    for k in ("briefing", "overview", "insights", "suggestions", "coverage", "questions", "limits", "reading"):
-        assert k in rep
-    assert rep["overview"]["tiles"] and rep["overview"]["sections"] and rep["insights"]["items"]
-    assert rep["briefing"]["headline"] and rep["briefing"]["key_numbers"]
-    assert any(i["type"] == "stockout" for i in rep["insights"]["items"])
+    # this branch is the full-AI version: without an AI key it says so plainly, and still describes the files
+    assert rep["brain"] == "full AI" and "needs the AI" in rep["findings"]["error"]
+    assert {f["name"] for f in rep["files"]} == {s["name"] for s in specs} and rep["reading"]["profile"]
     json.dumps(rep)
-    assert (tmp / "data" / "analyses" / "a1" / "state.pkl.gz").exists()
+    assert (tmp / "data" / "analyses" / "a1" / "ai_state.pkl.gz").exists()
 
 
 def test_confirmations_and_memory_change_the_reading(env):

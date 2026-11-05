@@ -58,7 +58,7 @@ def _header_index(rows: list[list[str]]) -> int:
     return 0
 
 
-def _fix_frame(df: pd.DataFrame, notes: list[str], skipped: int) -> pd.DataFrame:
+def _fix_frame(df: pd.DataFrame, notes: list[str], skipped: int, minimal: bool = False) -> pd.DataFrame:
     # names: strip, fill blanks, make unique
     cols, seen = [], Counter()
     for i, c in enumerate(df.columns):
@@ -88,13 +88,15 @@ def _fix_frame(df: pd.DataFrame, notes: list[str], skipped: int) -> pd.DataFrame
             notes.append(f"'{c}' uses a decimal comma (e.g. 3,90); read as a decimal point.")
             continue
         nu = st.nunique()
-        if 1 < nu <= 300 and nu < 0.5 * len(st):
+        if not minimal and 1 < nu <= 300 and nu < 0.5 * len(st):
             low = st.str.casefold()
             if low.nunique() < nu:
                 canon = st.groupby(low).agg(lambda x: x.value_counts().index[0])
                 df[c] = df[c].where(df[c].isna(), df[c].astype(str).str.casefold().map(canon))
                 notes.append(f"'{c}': values that differ only in capitals (e.g. 'pro' / 'Pro' / 'PRO') were treated as the same.")
     # exact duplicate rows
+    if minimal:                       # the full-AI brain decides itself what to do with copies and spelling variants
+        return df
     data_cols = [c for c in df.columns if c != "_row"]
     dup = df.duplicated(subset=data_cols)
     if dup.any() and dup.mean() < 0.05:
@@ -105,7 +107,7 @@ def _fix_frame(df: pd.DataFrame, notes: list[str], skipped: int) -> pd.DataFrame
     return df
 
 
-def _read_text(path: str, notes: list[str]) -> pd.DataFrame:
+def _read_text(path: str, notes: list[str], minimal: bool = False) -> pd.DataFrame:
     raw = open(path, "rb").read()
     text, enc = _decode(raw)
     if enc != "utf-8-sig":
@@ -122,10 +124,10 @@ def _read_text(path: str, notes: list[str]) -> pd.DataFrame:
         notes.append(f"Skipped {h} line(s) above the header (titles or notes).")
     df = pd.read_csv(io.StringIO(text), sep=delim, skiprows=h, na_values=NA, keep_default_na=True, low_memory=False,
                      skip_blank_lines=False, on_bad_lines="warn", dtype=str if False else None, engine="c")
-    return _fix_frame(df, notes, skipped - h + h)
+    return _fix_frame(df, notes, skipped - h + h, minimal)
 
 
-def _read_excel(path: str, notes: list[str]) -> pd.DataFrame:
+def _read_excel(path: str, notes: list[str], minimal: bool = False) -> pd.DataFrame:
     sheets = pd.read_excel(path, sheet_name=None, header=None, na_values=NA)
     best = None
     for name, raw in sheets.items():
@@ -150,22 +152,23 @@ def _read_excel(path: str, notes: list[str]) -> pd.DataFrame:
     df = df.infer_objects()
     # read with header=None, so each row's index is its Excel row number minus 1 (blank rows dropped above keep their
     # numbers). _fix_frame numbers rows as index + 2 + skipped, so skipped = -1 gives the exact Excel row.
-    return _fix_frame(df, notes, -1)
+    return _fix_frame(df, notes, -1, minimal)
 
 
-def read_any(path: str) -> tuple[pd.DataFrame, list[str]]:
+def read_any(path: str, minimal: bool = False) -> tuple[pd.DataFrame, list[str]]:
+    """minimal=True: only parse the file (encoding, separator, header row, decimal commas, blanks); leave copies and spellings as they are."""
     notes: list[str] = []
     p = str(path).lower()
     df = None
     if p.endswith((".xlsx", ".xlsm", ".xls")):
         try:
-            df = _read_excel(path, notes)
+            df = _read_excel(path, notes, minimal)
         except ValueError:
             raise
         except Exception:
             df = None                       # some ".xls" files are really CSV text
     if df is None:
-        df = _read_text(path, notes)
+        df = _read_text(path, notes, minimal)
     if df is None or df.empty:
         raise ValueError("Could not read any rows from this file.")
     return df, notes

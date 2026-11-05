@@ -119,7 +119,12 @@ def _numbers_strict(text: str) -> list[tuple[float, int, str]]:
     return out
 
 
-def _nums(o, acc):
+COUNT_KEYS = {"rows_used", "groups", "rows", "total", "count", "n"}
+
+
+def _nums(o, acc, values_only: bool = False):
+    """values_only: leave out row counts (rows_used, rows per group...) - they may be quoted, but changes and shares
+    between counts are not findings and would let almost any percentage near 100% pass."""
     if isinstance(o, bool) or o is None:
         return acc
     if isinstance(o, (int, float)):
@@ -127,10 +132,14 @@ def _nums(o, acc):
             acc.append(float(o))
     elif isinstance(o, dict):
         for k, v in o.items():
-            _nums(v, acc)
+            if k in ("evidence", "formula", "question", "why"):
+                continue                                          # sample source rows and wording are not results
+            if values_only and k in COUNT_KEYS and isinstance(v, (int, float)):
+                continue
+            _nums(v, acc, values_only)
     elif isinstance(o, (list, tuple)):
         for v in o:
-            _nums(v, acc)
+            _nums(v, acc, values_only)
     elif isinstance(o, str):
         acc.extend(x for x, _, _ in _numbers_strict(o))
     return acc
@@ -189,12 +198,13 @@ def verify_strict(text: str, cited: list, extra: list | None = None) -> tuple[bo
     if CAUSAL.search(text):
         return False, "causal wording (say 'lines up with', not 'because')"
     groups = [_nums(c, []) for c in (cited or [])]
+    values = [_nums(c, [], True) for c in (cited or [])]
     common = _nums(extra or [], [])
     every = [x for g in groups for x in g] + common
     for v, dec, kind in _numbers_strict(text):
         if _matches(v, dec, kind, every):
             continue
-        if any(_derived(v, dec, kind, g + common) for g in groups if len(g) + len(common) <= 160):
+        if any(_derived(v, dec, kind, g) for g in values if len(g) <= 160):
             continue
         shown = f"{v:g}{'%' if kind == '%' else (' points' if kind == 'pts' else '')}"
         return False, f"{shown} does not come from the results it cites"
