@@ -108,3 +108,33 @@ def test_ask_alpha_across_files(analysed):
     r2 = ask(Echo(liar), str(tmp / "data"), "ai1", "How many products?", rep)
     assert r2["answer"] is None and calls["n"] >= 2                       # rejected, retried, never shown
     assert ask(Echo(answer), str(tmp / "data"), "missing", "q", rep)["answer"] is None
+
+
+def test_provider_stops_after_a_fatal_error_and_respects_limits(monkeypatch):
+    import io, json as _j, urllib.error, urllib.request
+    from alpha_engine.llm import OpenRouterProvider, ProviderFatal, BudgetExceeded, ScriptedProvider, Meter
+    calls = []
+
+    def fake_open(req, timeout=0):
+        calls.append(1)
+        raise urllib.error.HTTPError(req.full_url, 402, "Payment Required", {}, io.BytesIO(_j.dumps({"error": {"message": "This request requires more credits. You requested up to 4096 tokens, but can only afford 900."}}).encode()))
+    monkeypatch.setattr(urllib.request, "urlopen", fake_open)
+    p = OpenRouterProvider(api_key="placeholder", model="x/y")
+    p.min_interval = 0
+    try:
+        p.complete_json("s", {}, "plan"); assert False
+    except ProviderFatal as e:
+        assert "credit" in str(e)
+    n = len(calls)
+    try:
+        p.complete_json("s", {}, "again"); assert False
+    except ProviderFatal:
+        pass
+    assert len(calls) == n == 1                       # no retry on 402, and no second call once switched off
+    s = ScriptedProvider([{"a": 1}] * 5); s.meter = Meter(max_calls=2)
+    s.complete_json("x", {}); s.complete_json("x", {})
+    try:
+        s.complete_json("x", {}); assert False
+    except BudgetExceeded:
+        pass
+    assert s.meter.summary()["calls"] == 2

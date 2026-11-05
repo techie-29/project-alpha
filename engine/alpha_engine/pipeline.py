@@ -200,6 +200,9 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
             report = investigate(report, frames)
         except Exception as e:
             report["ai"]["investigation"] = {"error": f"{type(e).__name__}: {str(e)[:160]}"}
+    report["ai"]["usage"] = provider.meter.summary() if getattr(provider, "meter", None) else None
+    if getattr(provider, "disabled", None):
+        report["ai"]["stopped"] = provider.disabled
     report["seconds"] = round(time.time() - t0, 1)
     report = clean(report)
     out = Path(data_dir) / "analyses" / analysis_id
