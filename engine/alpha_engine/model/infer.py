@@ -121,7 +121,7 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
         if st is None:
             return 0.0, None
         pos = st["neg"] <= 0.02
-        if cid in ("revenue", "gross_revenue", "cost", "expense", "money_other", "unit_price", "unit_cost", "competitor_price", "price_level"):
+        if cid in ("revenue", "gross_revenue", "cost", "expense", "money_other", "unit_price", "unit_cost", "competitor_price", "price_level", "refund", "stock_value"):
             if not pos and cid != "money_other":
                 return 0.15, "has negative values"
             sc = 0.45 + (0.3 if st["dec2"] >= 0.4 else 0.15 if st["med"] >= 20 else 0.0)
@@ -136,7 +136,7 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
             if st["int"] < 0.97:
                 return 0.05, "not whole numbers"
             return (0.75 if st["min"] >= 0 and st["med"] <= 1000 else 0.35), "small whole numbers"
-        if cid in ("units_received", "units_ordered"):
+        if cid in ("units_received", "units_ordered", "units_returned", "on_order"):
             if st["int"] < 0.97 or st["neg"] > 0.02:
                 return 0.05, None
             return 0.6, "whole non-negative counts"
@@ -356,10 +356,13 @@ FILE_HINTS = {"snapshot": ("stock", "inventory", "warehouse stock", "on hand", "
               "customer": ("customers", "customer master", "clients", "members", "patients", "accounts"),
               "product": ("products", "product catalog", "catalogue", "items", "sku master", "menu", "services"),
               "purchase": ("purchase", "purchases", "purchase orders", "purchase order", "po", "procurement", "grn", "goods received", "inward", "supplier orders", "buying"),
-              "supplier": ("suppliers", "vendors"), "employee": ("employees", "staff", "agents"), "site": ("stores", "branches", "outlets", "warehouses", "sites")}
+              "supplier": ("suppliers", "vendors"), "employee": ("employees", "staff", "agents"), "site": ("stores", "branches", "outlets", "warehouses", "sites"),
+              "expense": ("expenses", "expense", "costs", "opex", "overheads", "operating costs", "expenses vs budget", "spend")}
 
 
 def file_name_hint(fname: str) -> dict[str, float]:
+    if " › " in fname:                                  # 'Book.xlsx › Sheet': the sheet says what this table is
+        fname = fname.split(" › ", 1)[1]
     base = re.sub(r"\.(csv|xlsx|xls)$", "", fname, flags=re.I)
     return {k: name_score(base, v)[0] for k, v in FILE_HINTS.items()}
 
@@ -367,10 +370,15 @@ def file_name_hint(fname: str) -> dict[str, float]:
 STOCK_NAME = ("stock", "on hand", "inventory", "closing stock", "stock level", "balance qty", "soh", "qoh", "available qty", "inventory level", "current stock", "in stock")
 
 
+LEVEL_OK = ("quantity", "activity_count", "number", "points", "stock_level", "units_ordered", "units_received", "on_order", "level_value", "price_level",
+            "stock_value", "reorder_level", "unit_price", "unit_cost", "competitor_price")
+
+
 def level_columns(df: pd.DataFrame, item_keys: list, concept_of: dict) -> list[str]:
     """Number columns that behave like a running count for each item (today's value is close to yesterday's), or are named so.
     Flows (units sold per day) jump around; levels (stock on hand, balance, price) move smoothly."""
-    nums = [c for c, k in concept_of.items() if c in df.columns and CONCEPTS[k].kind == "number" and c not in item_keys]
+    nums = [c for c, k in concept_of.items() if c in df.columns and CONCEPTS[k].kind == "number" and c not in item_keys
+            and (k in LEVEL_OK or name_score(c, STOCK_NAME)[0] >= 0.6)]
     out = []
     d = df[item_keys + ["_t"] + nums].dropna(subset=["_t"]).sort_values(item_keys + ["_t"])
     for c in nums:
@@ -393,7 +401,19 @@ def file_role(p, concept_of: dict[str, str], fhint: dict[str, float]) -> dict:
     keys = [c for c, k in concept_of.items() if CONCEPTS[k].kind == "key" and c in df.columns]
     if p.kind == "summary":
         return {"role": "summary", "entity": None, "reason": "a few summary rows"}
+    ENT = {"customer_id": "customer", "product_id": "product", "supplier_id": "supplier", "employee_id": "employee", "site_id": "site"}
+    flows = set(concept_of.values()) & {"revenue", "gross_revenue", "quantity", "profit", "order_id", "discount", "refund", "units_returned", "activity_count"}
+    for c in keys:
+        if concept_of[c] in ENT and p.time_col is not None and not flows:
+            vals = df[c].dropna()
+            if len(vals) >= 2 and vals.nunique() == len(vals) and (id_header(c) or ID_HEAD.search(c)) and len(vals) >= 0.95 * n:
+                ent = ENT[concept_of[c]]
+                return {"role": "master", "entity": ent, "key": c, "dated_master": True,
+                        "reason": f"one row per {ent} ({c} is unique); its dates ({p.time_col}) describe each {ent}, they are not events"}
     if p.time_col is None:
+        oid = [c for c in keys if concept_of[c] == "order_id"]
+        if oid and df[oid[0]].nunique() < 0.95 * df[oid[0]].notna().sum():
+            return {"role": "lines", "entity": "order line", "key": oid[0], "reason": f"several rows per {oid[0]}: the lines of each order"}
         for c in keys:
             u = df[c].nunique(dropna=True)
             if u >= 0.98 * df[c].notna().sum() and u >= 5:
@@ -528,6 +548,11 @@ def _context_rules(df, cols: dict, nst: dict, role: dict, fhint: dict) -> list[s
             _set(v, "supplier_id", "in a purchase file, the party is the supplier", 0.7)
         if v["concept"] == "discount" and st and st.get("max", 9) <= 1 and st.get("min", -1) >= 0 and st.get("int", 1) < 0.98:
             _set(v, "discount_pct", f"values run from {st['min']:g} to {st['max']:g}: a share of the price (discount %), not an amount", 0.75)
+    if fhint.get("expense", 0) >= 0.6:
+        for c, v in cols.items():
+            if v.get("source") == "auto" and v["concept"] in ("revenue", "money_other", "gross_revenue") and name_score(c, CONCEPTS["revenue"].synonyms)[0] < 0.9:
+                _set(v, "expense", "an amount in an expenses table is money spent", 0.72)
+                notes.append(f"'{c}' was read as money spent because this table is about expenses.")
     has = {v["concept"] for v in cols.values()}
     if role.get("role") in ("transactions", "lines") and "revenue" not in has and "gross_revenue" not in has:
         cand = [c for c, v in cols.items() if v["concept"] == "money_other" and nst.get(c) and nst[c]["neg"] <= 0.02 and v.get("source") == "auto"]
@@ -537,6 +562,73 @@ def _context_rules(df, cols: dict, nst: dict, role: dict, fhint: dict) -> list[s
             notes.append(f"'{best}' was read as the sale amount because the file has no other sales column.")
     return notes
 
+
+
+UNIT_TOKENS = {"sec", "secs", "second", "seconds", "min", "mins", "minute", "minutes", "hr", "hrs", "hour", "hours", "day", "days", "week", "weeks", "month", "months"}
+SHARE_TOKENS = {"pct", "percent", "percentage", "rate", "share", "ratio"}
+MONEY_TOKENS = {"amount", "amt", "price", "cost", "value", "salary", "wage", "wages", "revenue", "sales", "spend", "fee", "fees", "budget", "income", "profit",
+                "tax", "gst", "vat", "payment", "paid", "refund", "balance"} | {c.lower() for c in CURRENCIES}
+ORDERISH = {"order", "orders", "invoice", "inv", "bill", "receipt", "txn", "transaction", "trx", "sale", "sales", "booking", "voucher", "po", "so"}
+GENERIC_ID = {"id", "no", "number", "num", "ref", "code", "key"}
+
+
+def _header_rules(df, cols: dict, nst: dict, cst: dict) -> None:
+    """What a header says about units and scale outranks a loose name match:
+    - 'lead_time_days', 'resolution_hours', 'avg_session_sec', 'credit_days': a time taken, in that unit (never money or a count);
+    - 'bounce_rate', 'on_time_rate', 'gst_pct', 'mobile_share' holding 0..1 (or 0..100 for pct): a percentage, not a price or tax amount;
+    - 'qty_on_order' / 'stock_value': units on order and the value of stock, not sales or units bought;
+    - 'delay_reason' is a reason even when its values read like outcomes;
+    - whole-number counts in a file with no products or prices (add_to_cart, checkout_started) are activity counts, not units sold."""
+    has = {v["concept"] for v in cols.values()}
+    commerce = bool(has & {"product_id", "unit_price", "unit_cost", "revenue", "gross_revenue", "cost"})
+    for c, v in cols.items():
+        if v.get("source") in ("owner", "memory"):
+            continue
+        t = set(tokens(c))
+        st = nst.get(c)
+        con = v["concept"]
+        if st:
+            last = tokens(c)[-1] if tokens(c) else ""
+            unit_end = last in UNIT_TOKENS and not (t & {c.lower() for c in CURRENCIES})
+            countish = t & {"per", "units", "qty", "quantity", "count", "visits", "orders", "sessions", "number"}
+            if (unit_end or (t & UNIT_TOKENS and not (t & MONEY_TOKENS))) and not countish and con != "age" and st["neg"] <= 0.02 \
+                    and not (con in ("duration", "promised_duration") and v["confidence"] >= 0.7):
+                promised = bool(t & {"promised", "sla", "target", "expected", "planned", "estimated"})
+                _set(v, "promised_duration" if promised else "duration", f"the header gives a time unit ({', '.join(sorted(t & UNIT_TOKENS))})", 0.78)
+                continue
+            if t & SHARE_TOKENS and st["min"] >= 0 and con not in ("discount_pct", "margin_pct", "percent", "rating"):
+                fraction = st["max"] <= 1.0 and st["int"] < 0.98
+                pct_scale = bool(t & {"pct", "percent", "percentage"}) and st["max"] <= 100
+                if fraction or pct_scale:
+                    cid = "discount_pct" if t & {"discount", "disc"} else "margin_pct" if t & {"margin", "markup"} else "percent"
+                    _set(v, cid, "the header says it is a rate or share" + (" and the values run from 0 to 1" if fraction else " written in percent"), 0.78)
+                    continue
+            if con in ("units_ordered", "quantity", "stock_level") and "order" in t and t & {"on", "open", "pending", "transit"}:
+                _set(v, "on_order", "units on order (waiting to arrive), a level, not units sold or bought", 0.78)
+                continue
+            if con in ("stock_level", "money_other", "revenue") and t & {"stock", "inventory"} and t & {"value", "amount", "worth", "valuation"}:
+                _set(v, "stock_value", "the money value of stock held, a level that is not added up over time", 0.8)
+                continue
+            if con == "quantity" and not commerce and name_score(c, CONCEPTS["quantity"].synonyms)[0] < 0.6 and st["int"] >= 0.97:
+                _set(v, "activity_count", "a count of actions in a file with no products or prices", 0.6)
+                continue
+            if con == "units_ordered" and not commerce and t <= {"orders", "order", "count", "number", "no", "of", "total"}:
+                _set(v, "activity_count", "the number of orders (a count of actions), not units bought", 0.7)
+                continue
+        if con == "status" and t & {"reason", "cause", "why"}:
+            _set(v, "reason", "the header names a reason", 0.75)
+        if con == "product_group" and not (has & {"product_id", "unit_price", "unit_cost", "quantity", "stock_level", "name_label"}) \
+                and not t & {"product", "item", "sku", "brand", "menu", "dish", "service"}:
+            v.update(concept="group", label=CONCEPTS["group"].label, reasons=["a category in a table with no products (expense or ticket type)"] + v["reasons"][:2])
+    # two columns read as the order: the one whose header names the order keeps it, the other is another record's id
+    oids = [c for c, v in cols.items() if v["concept"] == "order_id" and v.get("source") == "auto"]
+    if len(oids) > 1:
+        named = [c for c in oids if set(tokens(c)) & ORDERISH]
+        if named:
+            for c in oids:
+                if c not in named:
+                    cols[c].update(concept="entity_id", label=CONCEPTS["entity_id"].label,
+                                   reasons=[f"this file's own record id; '{named[0]}' is the order"] + cols[c]["reasons"][:2])
 
 # ---------------- main ----------------
 def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dict:
@@ -577,6 +669,8 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
     for c, info in usable.items():
         cands = candidates_for(info["role"], info, c)
         pii = is_pii(c)
+        if pii and c in nst and nst[c] and nst[c]["max"] < 100000 and re.search(r"mobile|phone", c, re.I) and not re.search(r"e_?mail|address|birth|dob|ssn|aadhaar|passport", c, re.I):
+            pii = False                                # 'mobile_share' = 0.66, 'phone_orders' = 12: numbers about phones, not phone numbers
         if pii and tokens(c) == ["name"] and c in cst and cst[c]["vals"]:
             # a column headed 'Name' that holds codes like '#1001' or 'SO-2231' is a document number, not a person's name
             coded = sum(1 for v in cst[c]["vals"][:40] if re.fullmatch(r"#\s*\d+|[A-Z]{1,5}[-/]?\d{3,}|\d{3,}", v.strip())) / max(1, min(40, len(cst[c]["vals"])))
@@ -634,6 +728,7 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
         conf = round(max(0.05, min(1.0, top[0] * (0.75 + 0.25 * min(1.0, (top[0] - second) / 0.25)))), 2)
         cols[c] = {"concept": top[1], "label": CONCEPTS[top[1]].label, "confidence": conf, "reasons": top[2][:4],
                    "alternatives": [(cid, round(s, 2)) for s, cid, _ in scored[1:4]], "source": "auto"}
+    _header_rules(df, cols, nst, cst)
     concept_of = {c: v["concept"] for c, v in cols.items()}
     role = file_role(p, concept_of, fhint)
     # structure evidence: in a stock snapshot, the running counts are levels, not flows (units sold per day stay a flow)
@@ -642,6 +737,9 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
         for c, v in cols.items():
             if role["role"] == "snapshot" and c not in levels:
                 continue
+            money_head = bool(set(tokens(c)) & MONEY_TOKENS)
+            if v["concept"] in ("revenue", "money_other") and (money_head or name_score(c, STOCK_NAME)[0] < 0.6):
+                continue                                  # an amount in a periodic file (expense, budget) is not a stock count
             if v["concept"] in ("quantity", "activity_count", "number", "points", "revenue", "money_other") and (nst.get(c) or {}).get("int", 0) >= 0.9:
                 v.update(concept="stock_level", label=CONCEPTS["stock_level"].label, confidence=max(v["confidence"], 0.7),
                          reasons=[f"a count in a {role['role']} file is a level (stock on hand), not something to add up over time"] + v["reasons"][:2])
@@ -677,7 +775,10 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
     if role["role"] == "transactions":
         for c, v in cols.items():
             named = nscore(c, v["concept"]) >= 0.8          # 'Customer ID', 'Account ID': the header already says what it is
-            if CONCEPTS[v["concept"]].kind == "key" and df[c].nunique() >= 0.9 * df[c].notna().sum() and v["concept"] not in ("order_id",) and v["confidence"] < 0.8 and not named:
+            orderish = bool(set(tokens(c)) & ORDERISH) or set(tokens(c)) <= GENERIC_ID
+            others = any(vv["concept"] == "order_id" for kk, vv in cols.items() if kk != c)
+            if CONCEPTS[v["concept"]].kind == "key" and df[c].nunique() >= 0.9 * df[c].notna().sum() and v["concept"] not in ("order_id",) and v["confidence"] < 0.8 and not named \
+                    and orderish and not others:
                 v.update(concept="order_id", label=CONCEPTS["order_id"].label, confidence=max(v["confidence"], 0.7), reasons=["unique per row in a transaction log"] + v["reasons"][:2])
     # a number that never changes within a customer (or product) describes that customer, e.g. lifetime value or age.
     # It must be averaged over customers, never added up across their orders.

@@ -211,7 +211,7 @@ class GeminiProvider(Provider):
 
 class OpenRouterProvider(Provider):
     """OpenRouter (OpenAI-style chat API). Reaches DeepSeek and many other models with one key.
-    Env: OPENROUTER_API_KEY, OPENROUTER_MODEL (default deepseek/deepseek-chat), AI_MAX_TOKENS (default 4096),
+    Env: OPENROUTER_API_KEY, OPENROUTER_MODEL (default deepseek/deepseek-chat), AI_MAX_TOKENS (default 8192),
     AI_REASONING (low | medium | high, optional), AI_MAX_CALLS and AI_MAX_COST_USD (limits per analysis)."""
     name = "openrouter"
     _last_call = 0.0
@@ -222,7 +222,7 @@ class OpenRouterProvider(Provider):
         self.model = (model or os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat")).strip()
         self.timeout = timeout
         self.min_interval = float(os.environ.get("AI_MIN_INTERVAL", "1.0"))
-        self.max_tokens = int(os.environ.get("AI_MAX_TOKENS", "4096"))
+        self.max_tokens = int(os.environ.get("AI_MAX_TOKENS", "8192"))
         self.reasoning = os.environ.get("AI_REASONING", "").strip().lower()
         if not self.key:
             raise ProviderError("OPENROUTER_API_KEY is not set.")
@@ -246,7 +246,7 @@ class OpenRouterProvider(Provider):
         if len(text_in) > 300_000:
             text_in = text_in[:300_000]
         max_tokens = self.max_tokens
-        cap = int(os.environ.get("AI_MAX_TOKENS_CAP", "16000"))
+        cap = int(os.environ.get("AI_MAX_TOKENS_CAP", "32000"))
         force_low = False
         last, t0 = "unknown error", time.time()
         for attempt in range(4):

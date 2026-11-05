@@ -24,7 +24,7 @@ def _group_series(s: pd.Series, leak: bool = False) -> pd.Series:
     """Missing values become their own group ('(none)') when they are a real share of rows, e.g. orders with no campaign."""
     miss = s.isna().mean()
     if 0.05 <= miss <= 0.95:
-        return s.astype("string").fillna("(none)")
+        return s.astype("string").fillna("(not filled in)")
     return s
 
 

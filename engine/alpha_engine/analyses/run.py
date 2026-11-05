@@ -76,10 +76,9 @@ def run_all(pick: dict, views_by_name: dict, progress=lambda s, p: None) -> tupl
 
 
 def _parallel_ok() -> bool:
-    flag = os.environ.get("ALPHA_PARALLEL", "")
-    if flag in ("0", "false", "no"):
-        return False
-    return flag in ("1", "true", "yes") or sys.platform.startswith("linux")
+    # off unless asked for: forking a process that already runs threads (numpy, the web server) can hang the child forever,
+    # and with one run per table a hang somewhere becomes likely. Sequential is a little slower and never hangs.
+    return os.environ.get("ALPHA_PARALLEL", "") in ("1", "true", "yes") and sys.platform.startswith("linux")
 
 
 def _changes_job(sv, S):

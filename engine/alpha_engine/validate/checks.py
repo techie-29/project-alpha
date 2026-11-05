@@ -176,7 +176,7 @@ def _missing(R: _Run, p, concept_of: dict):
         if p.roles[c].get("role") == "measure" and not pd.api.types.is_numeric_dtype(d[c]):
             miss = miss | _num(d[c]).isna()
         share = float(miss.mean())
-        key = concept_of.get(c) in ("revenue", "profit", "quantity", "order_id", "product_id", "customer_id", "event_date", "cost")
+        key = concept_of.get(c) in ("revenue", "profit", "quantity", "order_id", "product_id", "customer_id", "cost") or c == p.time_col
         if share >= 0.01 or (key and miss.any()):
             parts.append((c, share, miss))
     if not parts:
@@ -184,15 +184,20 @@ def _missing(R: _Run, p, concept_of: dict):
     else:
         parts.sort(key=lambda x: -x[1])
         for c, share, miss in parts[:12]:
-            key = concept_of.get(c) in ("revenue", "profit", "quantity", "order_id", "product_id", "customer_id", "event_date", "cost")
-            status = "warn" if (share >= 0.05 and key) or share >= 0.3 else "info"
-            m = R.money_in(miss)
-            R.put("missing_values", status, f"'{c}' is empty on {share:.1%} of rows ({int(miss.sum()):,})"
-                  + (f", rows carrying {m:,.2f} of sales." if m else "."), mask=miss, cols=[c], flag_rows=key)
+            key = concept_of.get(c) in ("revenue", "profit", "quantity", "order_id", "product_id", "customer_id", "cost") or c == p.time_col
+            optional = not key and share >= 0.5                  # filled only when it applies (a cancel reason, a delivery date, an exit date)
+            status = "warn" if (share >= 0.05 and key) or (0.05 <= share < 0.5 and not key) else "info"
+            m = R.money_in(miss) if not optional else None
+            R.put("missing_values", status, (f"'{c}' is filled on only {1 - share:.1%} of rows: an optional detail that applies to some rows "
+                                             f"(like a reason or a later date), not missing data." if optional else
+                                             f"'{c}' is empty on {share:.1%} of rows ({int(miss.sum()):,})" + (f", rows carrying {m:,.2f} of sales." if m else ".")),
+                  mask=miss if not optional else None, cols=[c], flag_rows=key, n=None if not optional else 0)
     # rows missing something every analysis needs
     need = {k: c for c, k in concept_of.items() if k in ("revenue", "event_date", "product_id", "customer_id") and c in d.columns}
     if p.time_col in d.columns:
         need["event_date"] = p.time_col
+    elif "event_date" in need:
+        del need["event_date"]                                    # a list (products, staff) has no 'when it happened' to require
     if need:
         mk = pd.Series(False, index=d.index)
         what = []
@@ -212,7 +217,7 @@ def _missing(R: _Run, p, concept_of: dict):
 
 def _time(R: _Run, p):
     d = R.df
-    if "_t" not in d.columns or not d["_t"].notna().any() or getattr(p, "synthetic_time", False):
+    if p.time_col is None or "_t" not in d.columns or not d["_t"].notna().any() or getattr(p, "synthetic_time", False):
         for cid in ("time_gaps", "partial_periods"):
             R.put(cid, "n/a", "The file has no timeline.")
         return
@@ -240,7 +245,8 @@ def _time(R: _Run, p):
     else:
         R.put("time_gaps", "pass", f"Every {grain} between the first and last date has rows.", n=0)
     # first / last period only partly covered (a half month looks like a drop)
-    if grain == "month" and len(full) >= 3:
+    monthly_rows = float((t.dt.day == 1).mean()) >= 0.95 or (getattr(p, "file_role", None) or {}).get("role") == "snapshot"   # stock counts are not sums or (p.roles.get(p.time_col) or {}).get("date_grain") in ("month", "quarter", "year")
+    if grain == "month" and len(full) >= 3 and not monthly_rows:
         notes = []
         first, last = t.min(), t.max()
         dim_last, dim_first = last.days_in_month, first.days_in_month
@@ -269,6 +275,11 @@ def _duplicate_ids(R: _Run, p, concept_of: dict, role: dict):
         return
     if oid is None:
         R.put("duplicate_ids", "n/a", "No order or invoice number to check.")
+        return
+    src = p.df
+    own = [c for c, k in concept_of.items() if k == "entity_id" and c in src.columns and src[c].notna().all() and src[c].is_unique]
+    if own and d[oid].duplicated().any():                      # a returns / tickets table: its own id is the one that must be unique
+        R.put("duplicate_ids", "pass", f"Each {own[0]} appears once ('{oid}' repeats because one order can have several of these).", n=0)
         return
     one_per_order = d[oid].nunique() >= 0.95 * d[oid].notna().sum()
     keys = [oid] if one_per_order else [oid] + ([pid] if pid else [])     # one row per order: the order number alone must be unique
@@ -393,7 +404,7 @@ def _mixed_scales(R: _Run, p, concept_of: dict):
         nz = v[v.notna() & (v != 0)]
         if len(nz) < 20:
             continue
-        small, big = (nz.abs() <= 1), (nz.abs() > 1.5)
+        small, big = (nz.abs() < 1), (nz.abs() > 1.5)        # exactly 1 fits both (1% or 100%), so it says nothing about the scale
         # both ways present: at least 3 rows of the rarer kind (even a handful of '5' among '0.05' distorts every average)
         if min(int(small.sum()), int(big.sum())) >= 3 and max(small.mean(), big.mean()) >= 0.5:
             found = True
@@ -512,7 +523,9 @@ def _rules(R: _Run, F, cur, items_out: list):
     # 23 product conflicts: one code, several names, or prices that differ wildly
     if "product_id" in d.columns:
         notes, masks = [], []
-        name_col = next((c for c in (F.groups.get("name_label") or []) if c in d.columns), None)
+        name_col = next((c for c in (F.groups.get("name_label") or []) if c in d.columns
+                         and re.search(r"product|item|sku|article|menu|dish|service|^name$|_name$", str(c), re.I)
+                         and not re.search(r"title|review|comment|note|remark", str(c), re.I)), None)
         if name_col:
             nn = d.groupby("product_id")[name_col].nunique()
             bad = nn[nn > 1].index
@@ -593,8 +606,9 @@ def _overlap(tables: dict) -> dict[str, dict]:
         for b in names[i + 1:]:
             A, B = tables[a].df, tables[b].df
             common = [c for c in A.columns if c in B.columns and not str(c).startswith("_")]
-            if len(common) < max(3, 0.6 * min(A.shape[1], B.shape[1]) - 1):
-                continue
+            wa = sum(1 for c in A.columns if not str(c).startswith("_")); wb = sum(1 for c in B.columns if not str(c).startswith("_"))
+            if len(common) < max(3, 0.8 * max(wa, wb)):
+                continue                                          # different tables that share a few columns (sku, price) are not copies
             ha = pd.util.hash_pandas_object(A[common].astype(str), index=False)
             hb = pd.util.hash_pandas_object(B[common].astype(str), index=False)
             both = ha.isin(set(hb))
@@ -613,7 +627,12 @@ def _orphans(R: _Run, name: str, links: list, tables: dict):
             continue
         have = set(parent[l.parent_col].dropna().astype(str).str.strip())
         miss = child[l.child_col].notna() & ~child[l.child_col].astype(str).str.strip().isin(have)
-        if miss.any():
+        vals = child.loc[miss, l.child_col].astype(str).str.strip()
+        if miss.any() and vals.nunique() == 1 and miss.sum() >= 20 and not re.search(r"\d{3,}", vals.iloc[0]):
+            found = True                                # one stand-in word on every unmatched row ('WALKIN', 'GUEST', 'CASH'): sales without a record
+            R.put("orphan_codes", "info", f"{int(miss.sum()):,} rows use '{vals.iloc[0]}' as the {l.child_col} ({miss.mean():.1%}): a stand-in for sales "
+                  f"with no {l.parent.split(' › ')[-1]} record, not a broken code. They count in totals; per-{l.child_col} figures leave them out.", n=0)
+        elif miss.any():
             found = True
             R.put("orphan_codes", "warn", f"{int(miss.sum()):,} rows use a {l.child_col} that is not in {l.parent} ({miss.mean():.1%}). Details looked up from "
                   f"{l.parent} (cost, category...) are missing for them."

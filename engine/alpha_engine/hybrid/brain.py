@@ -19,7 +19,7 @@ from ..brief import fact_sheet, numbers_of
 from ..cards import gate_all
 from . import requests as rq
 
-PROMPT_VERSION = "hybrid-1"
+PROMPT_VERSION = "hybrid-2"
 
 ANALYST = ("You are a senior business analyst. A small or medium business uploaded its own data and wants to know what it most "
            "needs to know. You work with a calculator: you never calculate yourself; you fill in order forms and the tool "
@@ -34,34 +34,41 @@ USEFUL = ("Useful means: money that is made or lost, and where; what changed ove
 
 PLAN_SYSTEM = (ANALYST + "Read the fact sheet and plan the analysis an expert would run on THIS data. " + USEFUL +
                "Use the named metrics where they fit (measure.metric) and your own combinations where they do not. Cover every "
-               "part of the business the data supports, not only sales. Use the data problems: check how much they move the totals. "
+               "part of the business the data supports, not only sales: each file in the fact sheet that holds its own numbers (returns, "
+               "support tickets, reviews, stock, purchases, marketing, footfall, expenses, invoices...) gets at least one request, using "
+               "\"file\" to point at it. Use the data problems: check how much they move the totals. "
                "Reply only with JSON: {\"understanding\": \"2-3 sentences: what this business is and what the data can and cannot show\", "
-               "\"requests\": [12 to 20 requests, most important first]}.\n" + rq.GRAMMAR)
+               "\"requests\": [15 to 30 requests, most important first]}.\n" + rq.GRAMMAR)
 
 DIG_SYSTEM = (ANALYST + "You planned an analysis and got the exact results below, plus the strongest patterns the tool's own scan found "
               "(as numbers). Dig deeper where a result is surprising, large in money, or unexplained: which groups drive a change, "
               "whether a pattern holds in each period, how much a data problem moves a figure, what is behind an extreme value. "
-              "Drop leads that are small or obvious. Reply only with JSON: {\"requests\": [up to 10 follow-up requests]}. "
+              "Drop leads that are small or obvious. Reply only with JSON: {\"requests\": [up to 12 follow-up requests]}. "
               "Use new ids (f1, f2 ...).\n" + rq.GRAMMAR)
 
 WRITE_SYSTEM = (ANALYST + "Write the findings the owner should read, from the exact results below. " + USEFUL +
                 "Rules: use only numbers that appear in the results a finding cites (you may round them, write a share as a percent, "
                 "or give the change or difference between two of them); every finding compares something (groups, periods, or a part "
                 "against the whole) and says how much money is involved; never say one thing caused another (say 'lines up with', "
-                "'goes with'); say what the data cannot tell where it matters; skip weak or obvious results. Reply only with JSON: "
-                "{\"headline\": \"one sentence on the state of the business, with numbers\", \"cards\": [5 to 10 of {"
+                "'goes with'); say what the data cannot tell where it matters; skip weak or obvious results; cover the different areas the "
+                "results reach (sales, profit, customers, products, stock, buying, marketing, service, costs), not only one; write money "
+                "with the currency given in the results or headline numbers and never add a currency symbol that is not given. Reply only with JSON: "
+                "{\"headline\": \"one sentence on the state of the business, with numbers\", \"cards\": [8 to 15 of {"
                 "\"headline\": \"specific, with the key number\", \"points\": [\"2-3 short points, each with a number\"], "
                 "\"money\": {\"amount\": <number from the results>, \"what\": \"what that amount is\"}, "
                 "\"why_it_matters\": \"one sentence\", \"look_into\": \"one concrete thing worth looking into next\", "
-                "\"tone\": \"risk|strength|data|neutral\", \"area\": \"sales|profit|customers|products|stock|buying|operations|data\", "
+                "\"tone\": \"risk|strength|data|neutral\", \"area\": \"sales|profit|customers|products|stock|buying|marketing|service|costs|operations|data\", "
                 "\"evidence\": [\"request ids it rests on\"], \"chart\": {\"type\": \"bar|line|table|none\", \"evidence\": \"one request id\"}, "
                 "\"importance\": \"high|medium|low\", \"strength\": \"Calculated\"}], \"cannot_tell\": [\"what the data cannot show\"]}.")
 
-ASK_PLAN_SYSTEM = (ANALYST + "The owner asks a question about their own data. Plan 1 to 6 requests that answer it. Reply only with JSON: "
+ASK_PLAN_SYSTEM = (ANALYST + "The owner asks a question about their own data. Plan 1 to 8 requests that answer it, each pointed at the "
+                   "file that holds the answer (\"file\"). A broad question (the whole business, all files) gets one request per main file. "
+                   "When the data has problems that change the answer (see data_problems), add a request that shows the answer without them. Reply only with JSON: "
                    "{\"requests\": [ ... ]}.\n" + rq.GRAMMAR)
 
 ASK_ANSWER_SYSTEM = ("Answer the owner's question from the exact results below, in plain language. Use only numbers that appear in the "
-                     "results (rounded, as a percent, or the change between two of them). Never say one thing caused another. Reply only "
+                     "results (rounded, as a percent, or the change between two of them). Never say one thing caused another. If one of the "
+                     "data_problems touches the answer, say so in cannot_tell (in words, without numbers). Reply only "
                      "with JSON: {\"short_answer\": \"1-2 sentences\", \"key_points\": [\"3-6 points, each with a number\"], "
                      "\"how_worked_out\": [\"one line per request used, in words\"], \"what_it_means\": \"1-2 sentences\", "
                      "\"cannot_tell\": \"what the data cannot show\", \"evidence\": [\"request ids used\"]}.")
@@ -219,10 +226,10 @@ def analyse(report: dict, frames: dict, tables: dict, model: dict, provider: Pro
         rec.save()
     out["requests"] = {rid: {k: v for k, v in r.items() if k != "result"} | ({"formula": r["result"].get("formula"), "rows_used": r["rows_used"]} if r["ok"] else {})
                        for rid, r in results.items()}
-    if len(out["cards"]) < 5:                                    # top up with the engine's own findings that pass the same checks
-        base, _ = baseline_cards(report, limit=10 - len(out["cards"]))
+    if len(out["cards"]) < 8:                                    # top up with the engine's own findings that pass the same checks
+        base, _ = baseline_cards(report, limit=14 - len(out["cards"]))
         have = {c["headline"].lower() for c in out["cards"]}
-        out["cards"] += [c for c in base if c["headline"].lower() not in have][: 8 - len(out["cards"])]
+        out["cards"] += [c for c in base if c["headline"].lower() not in have][: 12 - len(out["cards"])]
     return out
 
 
@@ -254,7 +261,8 @@ def ask(provider: Provider, frames: dict, report: dict, question: str, history: 
     if not good:
         return {"short_answer": None, "note": "Alpha could not turn this question into a calculation on your data. Try naming the measure and the split "
                 "(for example: 'profit by region last year').", "calculations": _calcs(results)}
-    ans = provider.complete_json(ASK_ANSWER_SYSTEM, {"question": question, "results": [r for r in rq.compact(results) if "error" not in r]}, "ask-answer")
+    ans = provider.complete_json(ASK_ANSWER_SYSTEM, {"question": question, "results": [r for r in rq.compact(results) if "error" not in r],
+                                                     "data_problems": [{"file": x["file"], "check": x["check"]} for x in (fs.get("data_problems") or [])][:12]}, "ask-answer")
     if not isinstance(ans, dict):
         ans = {}
     nums = [r["result"] for r in good.values()]

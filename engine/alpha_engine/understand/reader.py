@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+from pathlib import Path
 from collections import Counter
 import pandas as pd
 
@@ -125,23 +126,72 @@ def _read_text(path: str, notes: list[str]) -> pd.DataFrame:
     return _fix_frame(df, notes, skipped - h + h)
 
 
-def _read_excel(path: str, notes: list[str]) -> pd.DataFrame:
-    sheets = pd.read_excel(path, sheet_name=None, header=None, na_values=NA)
-    best = None
-    for name, raw in sheets.items():
-        raw = raw.dropna(how="all").dropna(axis=1, how="all")
-        if raw.empty:
-            continue
-        rows = raw.head(40).astype(object).where(raw.head(40).notna(), "").astype(str).values.tolist()
-        h = _header_index(rows)
-        body = raw.iloc[h + 1:]
-        if best is None or len(body) > best[2]:
-            best = (name, raw, len(body), h)
-    if best is None:
+_BOOKS: dict = {}
+
+
+def _sheet_table(raw: pd.DataFrame):
+    """(header row, data rows) when a sheet holds a real table, else None (a notes / 'About' / cover sheet)."""
+    raw = raw.dropna(how="all").dropna(axis=1, how="all")
+    if raw.empty or raw.shape[1] < 2:
+        return None
+    rows = raw.head(40).astype(object).where(raw.head(40).notna(), "").astype(str).values.tolist()
+    h = _header_index(rows)
+    body = raw.iloc[h + 1:]
+    if len(body) < 2:
+        return None
+    filled = body.notna().mean()
+    if int((filled >= 0.5).sum()) < 2:                          # one column of text with stray cells: notes, not a table
+        return None
+    head = [str(x).strip() for x in raw.iloc[h].tolist() if pd.notna(x) and str(x).strip()]
+    if len(head) < 2 or sum(_is_texty(x) for x in head) < 0.6 * len(head):
+        return None
+    if max(len(x) for x in head) > 60 or sum(len(x) > 40 for x in head) >= 0.5 * len(head):
+        return None                                             # sentences, not column names: a notes or 'About' sheet
+    return raw, h, len(body)
+
+
+def _book(path: str) -> dict:
+    """All sheets of a workbook, read once and kept (keyed by path + modified time + size)."""
+    st = Path(path).stat()
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    if key not in _BOOKS:
+        if len(_BOOKS) > 4:
+            _BOOKS.pop(next(iter(_BOOKS)))
+        _BOOKS[key] = pd.read_excel(path, sheet_name=None, header=None, na_values=NA)
+    return _BOOKS[key]
+
+
+def table_sheets(path: str) -> list[tuple[str, int]]:
+    """The sheets of a workbook that hold tables, with their row counts, in workbook order. Empty for non-Excel files."""
+    if not str(path).lower().endswith((".xlsx", ".xlsm", ".xls")):
+        return []
+    try:
+        book = _book(path)
+    except Exception:
+        return []
+    out = []
+    for name, raw in book.items():
+        t = _sheet_table(raw)
+        if t:
+            out.append((str(name), t[2]))
+    return out
+
+
+def _read_excel(path: str, notes: list[str], sheet: str | None = None) -> pd.DataFrame:
+    book = _book(path)
+    found = {str(n): _sheet_table(raw) for n, raw in book.items()}
+    tables = {n: t for n, t in found.items() if t}
+    if not tables:
         raise ValueError("The workbook has no data.")
-    name, raw, _, h = best
-    if len(sheets) > 1:
-        notes.append(f"Workbook has {len(sheets)} sheets; used '{name}', the one with the most data.")
+    if sheet is not None:
+        if sheet not in tables:
+            raise ValueError(f"Sheet '{sheet}' has no table.")
+        name = sheet
+    else:
+        name = max(tables, key=lambda n: tables[n][2])
+        if len(book) > 1:
+            notes.append(f"Workbook has {len(book)} sheets; used '{name}', the one with the most data.")
+    raw, h, _ = tables[name]
     if h:
         notes.append(f"Skipped {h} line(s) above the header (titles or notes).")
     header = [str(x) if pd.notna(x) else "" for x in raw.iloc[h].tolist()]
@@ -153,13 +203,13 @@ def _read_excel(path: str, notes: list[str]) -> pd.DataFrame:
     return _fix_frame(df, notes, -1)
 
 
-def read_any(path: str) -> tuple[pd.DataFrame, list[str]]:
+def read_any(path: str, sheet: str | None = None) -> tuple[pd.DataFrame, list[str]]:
     notes: list[str] = []
     p = str(path).lower()
     df = None
     if p.endswith((".xlsx", ".xlsm", ".xls")):
         try:
-            df = _read_excel(path, notes)
+            df = _read_excel(path, notes, sheet)
         except ValueError:
             raise
         except Exception:

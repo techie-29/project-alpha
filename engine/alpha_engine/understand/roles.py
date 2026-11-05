@@ -41,6 +41,9 @@ def id_header(name: str) -> bool:
 PCT = re.compile(r"(pct|percent|percentage|margin|rate|ratio|share)", re.I)
 RATING = re.compile(r"(rating|score|stars|grade|rank)", re.I)
 DATE_HEAD = re.compile(r"(date|timestamp|created|updated|datetime)", re.I)
+# numbers headed like this are amounts or counts; 45,000 in 'monthly_salary_inr' is money, not an Excel day number
+NOT_DATE_HEAD = re.compile(r"(salary|wage|amount|amt|price|cost|value|revenue|sales|total|qty|quantity|units|count|spend|budget|fee|income|balance|profit|"
+                           r"tax|gst|discount|sqft|area|weight|score|points|stock|_inr|inr_|_usd|usd_|_eur|_gbp|rupees|rs\b|\binr\b|\busd\b)", re.I)
 PERIOD_PART = re.compile(r"^(year|month|week|quarter|day|hour|yr|mon|wk|qtr)$", re.I)
 BOOL_HEAD = re.compile(r"^(is|has|was|did|can)[_\s]|flag|active|enabled", re.I)
 PII_HEAD = re.compile(r"(name|email|mail|phone|mobile|address|street|ssn|aadhaar|passport|dob|birth|token|password|ip_?addr)", re.I)
@@ -152,7 +155,8 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
         return info
 
     # --- calendar time (every common way of writing a date, mixed styles allowed) ---
-    dr = read_dates(s, name)
+    numeric_amount = (pd.api.types.is_numeric_dtype(s) and s.dtype != bool) and bool(NOT_DATE_HEAD.search(name)) and not DATE_HEAD.search(name)
+    dr = None if numeric_amount else read_dates(s, name)
     if dr is not None and dr.rate > 0.5 and _plausible(dr.parsed):
         conf = (0.95 if dr.certain else 0.6) if dr.rate > 0.9 else 0.45
         info.update(role="time", date_order=dr.order, parse_rate=round(dr.rate, 4), confidence=conf, date_grain=dr.grain,
@@ -187,7 +191,7 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
         ratio = nu / nn
         # id vs measure vs category votes
         sid = 0.0
-        if strong_id:
+        if strong_id and ints:                         # 'mobile_share' = 0.66 has decimals: a share, not a phone number
             sid += 0.7; reasons.append("Header names a code/identifier (zip, phone, sku ...).")
         if hint_id and nu > 60:
             sid += 0.5; reasons.append("Header says id/code and there are many distinct values.")
