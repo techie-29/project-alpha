@@ -34,6 +34,7 @@ class Frame:
     gaps: list = field(default_factory=list)                                  # derived 'days between two dates' columns
     item_keys: list = field(default_factory=list)                             # what one stock item is (product, or product + store)
     used_dates: set = field(default_factory=set)
+    panel: str | None = None                                                  # one row per date per this column: rows are not sales
 
     def has(self, *names) -> bool:
         return all(n in self.df.columns and self.df[n].notna().any() for n in names)
@@ -111,17 +112,20 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
     dc = F.canon.get("duration") or F.canon.get("promised_duration")
     if dc:
         h = str(dc).lower()
-        F.duration_unit = "days" if h.startswith("days from") else "min" if re.search(r"min", h) else "hours" if re.search(r"hour|hrs|\bhr", h) else "days"
+        F.duration_unit = ("days" if h.startswith("days from") else "sec" if re.search(r"(^|[^a-z])sec|second", h) else "min" if re.search(r"(^|[^a-z])min", h)
+                           else "hours" if re.search(r"hour|hrs|(^|[^a-z])hr", h) else "weeks" if re.search(r"week", h) else "months" if re.search(r"month", h) else "days")
     # other dates on the same row give gaps in days (booked -> appointment, order -> ship)
     if has_time:
         for c, v in concept_cols.items():
             if CONCEPTS[v["concept"]].kind == "date" and c in src.columns and c != p.time_col and c not in F.used_dates:
                 d2 = pd.to_datetime(src[c], errors="coerce")
                 gap = (out["_t"].dt.normalize() - d2.dt.normalize()).dt.days
-                if gap.notna().mean() > 0.5 and gap.abs().median() <= 1100:
-                    if gap.median() < 0:
+                if gap.notna().mean() > 0.5 and gap.abs().median() <= 1100 and gap.abs().max() > 0:     # always 0: the same date twice
+                    nz = gap[gap != 0]
+                    if len(nz) and (nz < 0).mean() > 0.5:                # the other date mostly comes later (most same-day: judge by the rest)
                         gap = -gap
-                    name = f"days_between_{c}_and_{p.time_col}".replace(" ", "_").lower()
+                    tname = p.time_col if p.time_col and not str(p.time_col).startswith("_") else "date"
+                    name = f"days_between_{c}_and_{tname}".replace(" ", "_").lower()
                     out[name] = gap.astype(float)
                     F.extra_numbers.append((name, "number"))
                     F.gaps.append(name)
@@ -145,7 +149,53 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
         elif out["_cur"].notna().any():
             F.currency = str(out["_cur"].dropna().iloc[0]); F.currencies = [F.currency]
     F.nouns = _nouns(F, concept_cols)
+    _drop_twins(F)
+    F.panel = _panel(F)
     return F
+
+
+def _drop_twins(F: Frame) -> None:
+    """Two group columns that say the same thing (store_id and store_name, one name per id) would give every chart and
+    finding twice. Keep the first, drop the twin from the groups (the column stays in the data)."""
+    d = F.df
+    order = [c for cols in F.groups.values() for c in cols if c in d.columns]
+    drop = set()
+    for i, a in enumerate(order):
+        if a in drop:
+            continue
+        na = d[a].nunique()
+        if na < 2 or na > 2000:
+            continue
+        for b in order[i + 1:]:
+            if b in drop or b == a or d[b].nunique() != na:
+                continue
+            pair = d[[a, b]].dropna()
+            if len(pair) and pair.groupby(a, observed=True)[b].nunique().max() == 1:
+                drop.add(b)
+    if drop:
+        F.groups = {g: [c for c in cols if c not in drop] for g, cols in F.groups.items()}
+        F.groups = {g: cols for g, cols in F.groups.items() if cols}
+
+
+def _panel(F: Frame) -> str | None:
+    """A daily (or weekly / monthly) table with one row per date per store, channel or source: its rows are slots in a grid,
+    not sales, so 'number of rows' means nothing (every source has 730 rows because there are 730 days). Returns the
+    grouping column, or None."""
+    d = F.df
+    if not F.has_time or F.role not in ("transactions", "periodic") or "_t" not in d.columns or len(d) < 30:
+        return None
+    if any(k in F.canon for k in ("order_id", "customer_id", "product_id")):
+        return None
+    day = d["_t"].dt.normalize()
+    if day.nunique() < 10:
+        return None
+    if not day.duplicated().any():
+        return "(date)"                                            # one row per date: period totals
+    for c in [x for cols in F.groups.values() for x in cols if x in d.columns]:
+        k = d[c]
+        if 2 <= k.nunique() <= 200 and not pd.DataFrame({"t": day, "k": k}).duplicated().any():
+            return c
+    return None
 
 
 NOUN_MAP = {"appt": "appointment", "appointment": "appointment", "booking": "booking", "invoice": "invoice", "inv": "invoice", "receipt": "sale",
@@ -219,6 +269,14 @@ def _date_roles(F: Frame, src: pd.DataFrame, concept_cols: dict, p, has_time: bo
     for c, v in sorted(concept_cols.items(), key=lambda kv: -kv[1]["confidence"]):
         if CONCEPTS[v["concept"]].kind == "date" and c in src.columns and c != p.time_col:
             dd.setdefault(v["concept"], c)
+    # several 'done' dates (shipped, then delivered): the last step is when the order was really completed,
+    # so on-time is judged on delivery, not on dispatch
+    dones = [c for c, v in concept_cols.items() if v["concept"] == "done_date" and c in src.columns and c != p.time_col]
+    if len(dones) > 1:
+        med = {c: pd.to_datetime(src[c], errors="coerce").dropna() for c in dones}
+        med = {c: d.astype("int64").median() for c, d in med.items() if len(d) >= 0.3 * max(len(src), 1) * 0.1}
+        if med:
+            dd["done_date"] = max(med, key=med.get)
     ex = dd.get("expiry_date")
     if ex:
         F.df["_expiry"] = pd.to_datetime(src[ex], errors="coerce")

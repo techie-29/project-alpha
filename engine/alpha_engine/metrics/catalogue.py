@@ -2,6 +2,7 @@
 the concepts it needs. Every metric can be evaluated overall, per period (day/week/month/quarter/year) and per group."""
 from __future__ import annotations
 from dataclasses import dataclass
+import re
 import numpy as np
 import pandas as pd
 from .frame import Frame, MONEY
@@ -164,12 +165,43 @@ def available(F: Frame) -> list[Metric]:
         out = [m for m in out if m.id not in ("transactions", "orders", "avg_sale", "aov")]    # rows of a price table are dates, not sales
     if any(m.id == "loss_rate" for m in out):        # 'Damaged rate' from the movement column says the same as the loss rate
         out = [m for m in out if not (m.id.startswith("rate:") and "__rate__" in m.id and LOSS_WORDS.search(m.id))]
+    if getattr(F, "panel", None):
+        out = [m for m in out if m.id not in ("transactions", "avg_sale")]      # rows of a date x store grid are not sales
+    out = [_named(F, m) for m in out]
     ids = {m.id for m in out}
     if "orders" in ids:
         out = [m for m in out if m.id not in ("transactions", "avg_sale")]
     if "product_count" in ids and F.role == "master":
         out = [m for m in out if m.id != "products_sold"]
     return out
+
+
+def _pretty(col: str) -> str:
+    t = [w for w in re.split(r"[_\s]+", str(col).split(".")[-1]) if w and w.upper() not in CURRENCY_CODES]
+    x = " ".join(t).strip()
+    return x[:1].upper() + x[1:] if x else str(col)
+
+
+CURRENCY_CODES = {"INR", "USD", "EUR", "GBP", "AED", "SGD", "AUD", "CAD", "JPY", "CNY"}
+
+
+def _named(F: Frame, m: Metric) -> Metric:
+    """'Activity' and 'Forecast / plan' say nothing on their own: name them after the column they add up (Footfall, Sessions, Budget)."""
+    import dataclasses
+    col = {"activity": "activity_count", "forecast": "forecast"}.get(m.id)
+    if col and F.canon.get(col) and " › " not in str(F.canon[col]):
+        return dataclasses.replace(m, label=_pretty(F.canon[col]))
+    if m.id == "expenses" and not F.has("revenue"):
+        return dataclasses.replace(m, label="Expenses")
+    dc = str(F.canon.get("duration", ""))
+    if m.id == "avg_duration" and dc and not dc.startswith("days from") and " › " not in dc:
+        words = [w for w in _pretty(dc).lower().split() if w not in ("avg", "average", "mean", "sec", "secs", "seconds", "min", "mins", "minutes",
+                                                                       "hr", "hrs", "hours", "days", "day", "weeks", "months")]
+        return dataclasses.replace(m, label=f"Average {' '.join(words) or 'time'} ({F.duration_unit})")
+    rc = str(F.canon.get("revenue", ""))
+    if m.id == "revenue" and re.search(r"attribut|estimat|expected|projected", rc, re.I):
+        return dataclasses.replace(m, label=_pretty(rc))           # 'Attributed revenue' is the marketing system's claim, not sales
+    return m
 
 
 def generic_metrics(F: Frame, used_cols: set) -> list[Metric]:

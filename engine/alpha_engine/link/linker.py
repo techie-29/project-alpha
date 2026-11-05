@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, asdict, field
 import pandas as pd
+from ..understand.roles import id_header
 from ..understand.prepare import Prepared, prepare
 
 AUTO_USE = 0.85
@@ -53,6 +54,14 @@ def _keys(df: pd.DataFrame, col: str) -> pd.Series:
     return df[col].dropna().astype(str).str.strip()
 
 
+def _key_like(col: str, info: dict) -> bool:
+    if info.get("unique", 0) < 2:
+        return False
+    if info["role"] in ("id", "category"):
+        return True
+    return info["role"] == "text" and id_header(col)              # 'customer_id' read as text (codes plus 'WALKIN') is still a key
+
+
 def find_links(tables: dict[str, Prepared]) -> list[Link]:
     out: list[Link] = []
     names = list(tables)
@@ -62,12 +71,14 @@ def find_links(tables: dict[str, Prepared]) -> list[Link]:
             if A.kind == "summary" or B.kind == "summary":
                 continue
             for ca, ia in A.roles.items():
-                if ia["role"] not in ("id", "category") or ia.get("unique", 0) < 20:
+                if not _key_like(ca, ia):
                     continue
                 for cb, ib in B.roles.items():
-                    if ib["role"] not in ("id", "category") or ib.get("unique", 0) < 20:
+                    if not _key_like(cb, ib):
                         continue
                     ns = _name_score(ca, cb)
+                    if min(ia.get("unique", 0), ib.get("unique", 0)) < 20 and not (ns == 1.0 and id_header(ca)):
+                        continue                                # a short list links only through a shared id column (store_id, supplier_id)
                     if ia["role"] == "category" and ns < 1.0:
                         continue
                     ka, kb = _keys(A.df, ca), _keys(B.df, cb)
@@ -141,8 +152,12 @@ def _enrich(name: str, tables: dict[str, Prepared], links: list[Link], trail: tu
         miss = float(1 - ck.isin(lookup.index).mean())
         if miss > 0.05:
             warns.append(f"{miss:.0%} of {name} rows have no matching record in {L.parent}; their {L.parent} details are blank.")
-        take = [c for c in lookup.columns if c.startswith("__ok_")]
-        take += [c for c in _dim_columns_of(lookup, P) if c not in df.columns]
+        # the lines of a cancelled order do not count either; but a return, a ticket or a review is its own event and
+        # still happened even when its order was returned or cancelled
+        take = [c for c in lookup.columns if c.startswith("__ok_")] if T.time_col is None else []
+        # a parent's status (the order was Returned) must not decide which of this table's rows count
+        # (an order line may carry its order's status: lines of a cancelled order do not count anyway)
+        take += [c for c in _dim_columns_of(lookup, P) if c not in df.columns and not (T.time_col and re.search(r"status|state$|outcome", c, re.I))]
         if not have_time and P.time_col and P.time_col in lookup.columns and not P.synthetic_time:
             take.append(P.time_col)
             have_time = True

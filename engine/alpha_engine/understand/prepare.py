@@ -12,6 +12,9 @@ from .roles import (profile_columns, parse_dates, clean_numeric, apply_owner_con
                     MONEY, COUNT, PCT, RATING)
 
 TOTAL_ROW = re.compile(r"^\s*(grand\s+|sub\s*)?total[s]?\s*:?\s*$|^\s*(sum|average|mean)\s*:?\s*$", re.I)
+# a row with one of these outcomes brought in no money (cancelled, returned, failed...). Overdue / unpaid / disputed rows are
+# still sales (billed, money at risk) and churned / expired describe the customer: they stay a rate to watch, not removed.
+NO_MONEY_VALUE = re.compile(r"cancel|return|refund|fail|void|reject|declin|chargeback|abandon|no.?show|missed|did not attend|^dna$|bounced|undeliver|lost", re.I)
 PROBLEM_VALUE = re.compile(r"cancel|return|refund|fail|void|reject|declin|chargeback|abandon|no.?show|missed|did not attend|^dna$|absent|churn|expired|lapsed|overdue|unpaid|dispute|bounced|undeliver|lost", re.I)
 STATUS_HEAD = re.compile(r"order[_\s]?status|^status$|transaction[_\s]?status|^state$", re.I)
 PRESENCE_HEAD = re.compile(r"return|refund|cancel", re.I)
@@ -80,6 +83,11 @@ EVENT_STRONG = re.compile(r"(order|sale|txn|transaction|invoice|bill|posted|entr
                           r"\bday\b|\bdt\b|period|month|week|quarter|as of|as on|snapshot|count|purchase|po\b|voucher)", re.I)
 
 
+def _words(c: str) -> str:
+    """'return_date' -> 'return date', 'dueDate' -> 'due Date', so word rules see the words."""
+    return re.sub(r"([a-z])([A-Z])", r"\1 \2", re.sub(r"[_\-.]+", " ", str(c)))
+
+
 def _settle_dates(df: pd.DataFrame, roles: dict, confirmed: dict, p: "Prepared") -> None:
     """Every date column is read once, here, and stored as real dates in the table; later stages just use it."""
     for c, i in roles.items():
@@ -103,6 +111,7 @@ def _settle_dates(df: pd.DataFrame, roles: dict, confirmed: dict, p: "Prepared")
 def _axis_score(c: str, info: dict, s: pd.Series) -> float:
     """Which date column is the moment things happened? Order/sale dates beat expiry, birth or 'last updated' dates."""
     sc = 0.0
+    c = _words(c)
     if EVENT_DATE.search(c):
         sc += 2
     if SECONDARY_DATE.search(c):
@@ -124,8 +133,9 @@ def _build_time(df: pd.DataFrame, roles: dict, confirmed: dict, p: Prepared) -> 
         scores = {c: _axis_score(c, roles[c], df[c]) for c in time_cols}
         time_cols.sort(key=lambda c: -scores[c])
         c = confirmed.get("__time_col__") if confirmed.get("__time_col__") in time_cols else time_cols[0]
-        if c != confirmed.get("__time_col__") and (scores[c] < -1.5 or (SECONDARY_DATE.search(c) and not EVENT_DATE.search(c))
-                                                     or (DESCRIBES_ROW.search(c) and not EVENT_STRONG.search(c))):
+        w = _words(c)
+        if c != confirmed.get("__time_col__") and (scores[c] < -1.5 or (SECONDARY_DATE.search(w) and not EVENT_DATE.search(w))
+                                                     or (DESCRIBES_ROW.search(w) and not EVENT_STRONG.search(w))):
             # the only dates are expiry / birth / due-type dates: they describe the row, they are not when it happened
             p.notes.append(f"'{c}' holds {_kind_word(c)} dates, not the date things happened, so it is used as a detail of each row (e.g. days until it), not as the timeline.")
             return
@@ -208,7 +218,7 @@ def _status_logic(df: pd.DataFrame, roles: dict, p: Prepared) -> None:
                 fc = f"__rate__{c}={v}"
                 df[fc] = (s == v)
                 rate_cols.append((c, str(v), fc))
-                if c in primary:
+                if c in primary and NO_MONEY_VALUE.search(str(v)):
                     excl |= (s == v)
     # stock movements (IN / OUT / Sale / Damaged ...): losses become a rate to watch; signed quantities are normal there
     from ..model.concepts import MOVEMENT_WORDS

@@ -77,9 +77,10 @@ ASK_ANSWER_SYSTEM = ("Answer the owner's question from the exact results below, 
 def look(files: list[dict]) -> tuple[dict, list[dict]]:
     """Read each file (parsing only) and drop personal columns. Returns ({name: DataFrame}, profile for the AI)."""
     from ..understand.reader import read_any
+    from ..pipeline import expand_files
     tables, prof = {}, []
-    for f in files:
-        df, notes = read_any(f["path"], minimal=True)
+    for f in expand_files(files):                       # a workbook with several table sheets: one table per sheet
+        df, notes = read_any(f["path"], minimal=True, sheet=f.get("sheet"))
         df = df.drop(columns=[c for c in df.columns if c == "_row"], errors="ignore")
         keep, withheld = [], []
         for c in df.columns:

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from .llm import Provider, NullProvider
 from .validate import validate
-from .understand.reader import read_any
+from .understand.reader import read_any, table_sheets
 from .understand.dates import unpivot_periods, unpivot_tickers
 from .understand.prepare import prepare, Prepared
 from .understand.ai_review import review_columns
@@ -41,14 +41,35 @@ def _file_conf(confirmations: dict, name: str) -> dict:
     return c
 
 
+SHEET_SEP = " › "
+MAX_SHEETS = 20
+
+
+def expand_files(files: list[dict]) -> list[dict]:
+    """A workbook with several table sheets becomes one table per sheet ('Book.xlsx › Orders'), so nothing in it is
+    ignored; note / cover sheets are skipped. Single-table files are unchanged."""
+    out = []
+    for spec in files:
+        if spec.get("sheet") is not None:
+            out.append(spec); continue
+        sheets = table_sheets(spec["path"])
+        if len(sheets) <= 1:
+            out.append(spec); continue
+        for name, _ in sheets[:MAX_SHEETS]:
+            out.append({**spec, "name": f"{spec['name']}{SHEET_SEP}{name}", "sheet": name, "workbook": spec["name"]})
+    return out
+
+
 def _load(spec: dict, confirmations: dict, provider: Provider) -> Prepared:
     path = Path(spec["path"])
     st = path.stat()
     fc = _file_conf(confirmations, spec["name"])
-    key = (str(path), st.st_mtime_ns, st.st_size, json.dumps(fc, sort_keys=True), provider.name)
+    key = (str(path), spec.get("sheet"), st.st_mtime_ns, st.st_size, json.dumps(fc, sort_keys=True), provider.name)
     if key in _CACHE:
         return _CACHE[key]
-    df, rnotes = read_any(str(path))
+    df, rnotes = read_any(str(path), sheet=spec.get("sheet"))
+    if spec.get("sheet") is not None:
+        rnotes = [f"Sheet '{spec['sheet']}' of {spec.get('workbook') or path.name}."] + rnotes
     df, wide_note = unpivot_periods(df, spec["name"])
     if not wide_note:
         df, wide_note = unpivot_tickers(df)
@@ -71,11 +92,39 @@ def _understand(files: list[dict], confirmations: dict, provider: Provider, memo
             progress(f"Reading {spec['name']}", 3 + int(17 * (n + 1) / len(files)))
     links = apply_link_confirmations(find_links(tables), confirmations.get("links") or {})
     model = build_model(tables, links, confirmations, memory)
+    _settle_masters(tables, model)
+    _share_currency(model)
     from .investigate.ai import review_concepts
     model["ai_review"] = review_concepts(model, tables, provider)
     for name, p in tables.items():                              # the AI review may have changed some meanings
         p.concepts = {c: v["concept"] for c, v in model["files"][name]["columns"].items()}
     return tables, links, model
+
+
+def _settle_masters(tables: dict, model: dict) -> None:
+    """A list of products, stores, suppliers or staff keeps its dates (launched, opened, joined) as details of each record;
+    they are not when things happened, so the list is used as detail for the tables that link to it."""
+    for name, fm in model["files"].items():
+        P = tables.get(name)
+        if P is not None and fm["file"].get("dated_master") and P.time_col:
+            P.notes.append(f"'{P.time_col}' describes each {fm['file'].get('entity') or 'record'} (it is not when something happened), so this table is a list, not a log.")
+            P.time_col = None
+            if P.kind not in ("summary",):
+                P.kind = "reference"
+
+
+def _share_currency(model: dict) -> None:
+    """One business, one currency: when some tables state their currency (spend_inr, amount_inr) and exactly one currency is
+    found, tables that do not say are in the same currency. Two or more currencies are left alone (never mixed)."""
+    found = {v.get("constant") for fm in model["files"].values() for v in fm["columns"].values() if v.get("concept") == "currency" and v.get("constant")}
+    if len(found) != 1:
+        return
+    code = next(iter(found))
+    for fm in model["files"].values():
+        if not any(v.get("concept") == "currency" for v in fm["columns"].values()) and any(
+                CONCEPTS[v["concept"]].money for v in fm["columns"].values() if v.get("concept") in CONCEPTS):
+            fm["columns"]["__currency__"] = {"concept": "currency", "label": "Currency", "confidence": 0.7, "source": "auto", "constant": code, "alternatives": [],
+                                             "reasons": [f"other tables in this upload are in {code}"]}
 
 
 def _reading(files, tables, links, model) -> dict:
@@ -106,6 +155,7 @@ def _reading(files, tables, links, model) -> dict:
 
 def read(files: list[dict], confirmations: dict | None = None, provider: Provider | None = None, memory: dict | None = None) -> dict:
     confirmations, provider = confirmations or {}, provider or NullProvider()
+    files = expand_files(files)
     tables, links, model = _understand(files, confirmations, provider, memory)
     return clean(_reading(files, tables, links, model))
 
@@ -115,6 +165,7 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
     t0 = time.time()
     confirmations, provider = confirmations or {}, provider or NullProvider()
     progress("Reading your files", 2)
+    files = expand_files(files)
     tables, links, model = _understand(files, confirmations, provider, memory, progress)
     progress("Linking files into one business", 22)
     views, lnotes, lwarns = build_views(tables, links, {})
@@ -165,6 +216,8 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
             i["part"] = label
             if rev and i.get("impact") and i.get("impact_share") is None:
                 i["impact_share"] = min(1.0, abs(i["impact"]) / rev)
+        if not ov.get("tiles") and not ov.get("sections") and not part_items:
+            continue                                            # a lookup list on its own (e.g. a promotions calendar) has nothing to show
         raw += part_items
         parts.append({"name": label, "files": names, "overview": ov})
         checked["parts"].append({"name": label, "files": names, "findings": len(part_items)})
@@ -252,8 +305,10 @@ def _clusters(frames: dict, links: list) -> list[list[str]]:
 
 def _part_label(sub: dict, ov: dict) -> str:
     main = ov.get("sources", {}).get("sales") or ov.get("sources", {}).get("stock") or next(iter(sub))
-    base = main.rsplit(".", 1)[0].replace("_", " ").strip()
-    return base[:1].upper() + base[1:] if len(sub) == 1 else f"{base[:1].upper() + base[1:]} (+{len(sub) - 1} linked file{'s' if len(sub) > 2 else ''})"
+    base = main.split(SHEET_SEP, 1)[1] if SHEET_SEP in main else main.rsplit(".", 1)[0]
+    base = base.replace("_", " ").strip()
+    word = "table" if any(SHEET_SEP in n for n in sub) else "file"
+    return base[:1].upper() + base[1:] if len(sub) == 1 else f"{base[:1].upper() + base[1:]} (+{len(sub) - 1} linked {word}{'s' if len(sub) > 2 else ''})"
 
 
 def _questions(items: list[dict]) -> list[dict]:

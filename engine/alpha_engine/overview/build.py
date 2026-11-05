@@ -435,10 +435,42 @@ def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> d
             for mid in ("avg_late", "avg_duration", "on_time_rate", "fill_rate", "purchase_value"):
                 if mid in bm:
                     add("purchasing", bar_chart(B, bm[mid], c, cur if bm[mid].money else None))
+    # ---- every other table in this part (returns, support tickets, reviews, footfall, expenses...) gets its own charts and one tile ----
+    shown = {id(F) for F in (S, L, C, P, K, B) if F is not None}
+    table_sections = []
+    extra_tiles = 0
+    for F in sorted(frames.values(), key=lambda F: -len(F.df)):
+        if id(F) in shown or F.role in ("master", "summary", "reference", "dimension") or len(F.df) < 10:
+            continue
+        KEYS = {"order_id", "customer_id", "product_id", "supplier_id", "site_id", "employee_id"}
+        own = {k for k, v in F.canon.items() if k not in KEYS and " › " not in str(v)}      # this table's own numbers, not ones looked up from a parent
+        cat = [m for m in available(F) if m.id != "transactions" and not m.id.startswith("rate:")]
+        mine = [m for m in cat if set(m.needs) & own and not (set(m.needs) - own - KEYS)]
+        ms = mine + generic_metrics(F, {c for m in available(F) for c in m.needs})
+        ms = ms or [m for m in cat if m.id in ("orders", "customers")]
+        ms = sorted(ms, key=lambda m: (-int(bool(m.money)), -(m.headline or 0)))[:4]      # money first (refunds, expenses), then the rest
+        charts = []
+        fcur = F.currency or cur
+        for m in ms:
+            if F.has_time:
+                charts.append(time_chart(F, m, fcur if m.money else None, cid=f"{F.name}:{m.id}:t"))
+        gcols = [c for g in ("site_id", "reason", "group", "product_group", "channel", "status", "location", "segment", "supplier_id") for c in F.groups.get(g, [])]
+        for m in ms[:2]:
+            for c in gcols[:2]:
+                charts.append(bar_chart(F, m, c, fcur if m.money else None))
+        charts = [c for c in charts if c]
+        if charts:
+            title = F.name.split(" › ")[-1].replace("_", " ").strip()
+            table_sections.append({"area": f"table:{F.name}", "title": title, "charts": charts[:8], "source": F.name})
+        if ms and extra_tiles < 5 and ms[0].id not in seen and F.role != "snapshot":
+            t = tile(F, ms[0], fcur if ms[0].money else None)
+            if t:
+                t["label"] = f"{t['label']} ({F.name.split(' › ')[-1].replace('_', ' ')})" if len(frames) > 2 else t["label"]
+                tiles.append(t); extra_tiles += 1
     return {"files": describe_files(frames, file_infos), "currency": cur,
             "currencies": (S.currencies if S else []), "tiles": tiles,
             "sections": [{"area": a, "title": _area_title(a), "charts": sections[a]} for a in
-                         ("market", "sales", "products", "customers", "operations", "service", "stock", "purchasing", "costs", "other") if sections.get(a)],
+                         ("market", "sales", "products", "customers", "operations", "service", "stock", "purchasing", "costs", "other") if sections.get(a)] + table_sections,
             "sources": {k: (v.name if v else None) for k, v in pick.items()}}
 
 
