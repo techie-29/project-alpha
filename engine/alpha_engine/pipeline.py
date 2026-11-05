@@ -8,6 +8,7 @@ import pickle
 import time
 from pathlib import Path
 from .llm import Provider, NullProvider
+from .validate import validate
 from .understand.reader import read_any
 from .understand.dates import unpivot_periods, unpivot_tickers
 from .understand.prepare import prepare, Prepared
@@ -123,6 +124,11 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
             continue
         fm = model["files"][v.name]
         frames[v.name] = build_frame(v, fm["columns"], fm["file"], tables, links, model["files"])
+    progress("Checking your data", 26)
+    try:
+        data_check = validate(tables, frames, model, links)
+    except Exception as e:                                   # a failing check must never stop the report
+        data_check = {"headline": "The data checks could not run.", "error": f"{type(e).__name__}: {str(e)[:160]}", "files": [], "rows": {}, "rows_in": 0}
     progress("Building the overview", 28)
     infos = {n: m["file"] for n, m in model["files"].items()}
     views_by = {v.name: v for v in views}
@@ -177,6 +183,7 @@ def analyze(analysis_id: str, files: list[dict], confirmations: dict | None, dat
         "files": [{"name": s["name"], "rows": int(len(tables[s["name"]].df)), "role": model["files"][s["name"]]["file"].get("role")} for s in files],
         "reading": _reading(files, tables, links, model), "link_notes": lnotes, "link_warnings": lwarns,
         "overview": overview,
+        "data_check": data_check,
         "insights": {"items": asm["items"], "stories": asm["stories"], "checked": checked, "quiet": not any(i["strength"] != "calculated" for i in asm["items"])},
         "suggestions": asm["suggestions"],
         "coverage": coverage(frames, model["files"], asm["items"], overview),

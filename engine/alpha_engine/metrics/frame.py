@@ -311,7 +311,13 @@ def _derive(F: Frame) -> None:
     if {"unit_price", "competitor_price"} <= set(d.columns):
         d["_price_gap"] = d["unit_price"] / d["competitor_price"].where(d["competitor_price"] > 0) - 1
     if "discount_pct" in d and d["discount_pct"].max() > 1.5:
-        d["discount_pct"] = d["discount_pct"] / 100.0                     # 10 means 10%
+        v = d["discount_pct"]
+        nz = v[v.notna() & (v != 0)]
+        if len(nz) and (nz > 1.5).mean() >= 0.5:
+            d["discount_pct"] = v / 100.0                                  # written as percents: 10 means 10%
+        else:
+            # mostly written as shares (0.05) with a few percents (5): convert only those, row by row (reported by the data checks)
+            d["discount_pct"] = v.where(~(v > 1.5), v / 100.0)
     if "discount_pct" in d and "revenue" in d and F.canon.get("revenue") == "units x unit price":
         d["revenue"] = d["revenue"] * (1 - d["discount_pct"].fillna(0))
         F.canon["revenue"] = "units x unit price x (1 - discount %)"

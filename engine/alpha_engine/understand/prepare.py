@@ -263,7 +263,17 @@ def _measures(df: pd.DataFrame, roles: dict, p: Prepared) -> None:
     for c, i in roles.items():
         if i["role"] != "measure":
             continue
-        num = df[c] if pd.api.types.is_numeric_dtype(df[c]) else clean_numeric(df[c])
+        raw = df[c]
+        num = raw if pd.api.types.is_numeric_dtype(raw) else clean_numeric(raw)
+        if not pd.api.types.is_numeric_dtype(raw) and num is not None:
+            # remember what the conversion did, row by row, for the data checks: values cleaned ('₹1,200') and values that are not numbers ('n.a.')
+            has = raw.notna()
+            plain = raw.astype(str).str.fullmatch(r"\s*-?\d+(\.\d+)?\s*").fillna(False)
+            text_issues = getattr(p, "text_issues", {})
+            text_issues[c] = {"cleaned": (has & num.notna() & ~plain).to_numpy(), "unreadable": (has & num.isna()).to_numpy(),
+                              "examples_cleaned": raw[has & num.notna() & ~plain].astype(str).head(3).tolist(),
+                              "examples_unreadable": raw[has & num.isna()].astype(str).value_counts().index[:3].tolist()}
+            p.text_issues = text_issues                                     # type: ignore[attr-defined]
         df[c] = num
         mean_like = bool(MEAN_HEAD.search(c)) and not re.search(r"discount_amount|tax_amount|shipping_cost", c, re.I)
         agg = "mean" if mean_like else ("sum" if SUM_HEAD.search(c) else "mean")
