@@ -227,11 +227,13 @@ class OpenRouterProvider(Provider):
         if not self.key:
             raise ProviderError("OPENROUTER_API_KEY is not set.")
 
-    def _body(self, system: str, text_in: str, max_tokens: int) -> bytes:
+    def _body(self, system: str, text_in: str, max_tokens: int, force_low: bool = False) -> bytes:
         b = {"model": self.model,
              "messages": [{"role": "system", "content": system + "\nReply with one JSON object only."}, {"role": "user", "content": text_in}],
              "temperature": 0.2, "max_tokens": max_tokens, "response_format": {"type": "json_object"}, "usage": {"include": True}}
-        if self.reasoning in ("low", "medium", "high"):
+        if force_low:
+            b["reasoning"] = {"effort": "low"}                     # the model ran out of room while thinking: think less
+        elif self.reasoning in ("low", "medium", "high"):
             b["reasoning"] = {"effort": self.reasoning}
         return json.dumps(b).encode()
 
@@ -244,13 +246,15 @@ class OpenRouterProvider(Provider):
         if len(text_in) > 300_000:
             text_in = text_in[:300_000]
         max_tokens = self.max_tokens
+        cap = int(os.environ.get("AI_MAX_TOKENS_CAP", "16000"))
+        force_low = False
         last, t0 = "unknown error", time.time()
         for attempt in range(4):
             wait = OpenRouterProvider._last_call + self.min_interval - time.time()
             if wait > 0:
                 time.sleep(wait)
             OpenRouterProvider._last_call = time.time()
-            req = urllib.request.Request(url, data=self._body(system, text_in, max_tokens), headers={
+            req = urllib.request.Request(url, data=self._body(system, text_in, max_tokens, force_low), headers={
                 "Content-Type": "application/json", "Authorization": f"Bearer {self.key}", "X-Title": "Project Alpha"})
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:
@@ -263,15 +267,21 @@ class OpenRouterProvider(Provider):
                 text = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
                 self.meter.add(purpose, time.time() - t0, u.get("prompt_tokens"), u.get("completion_tokens"), u.get("cost"),
                                None if text.strip() else "empty answer")
+                cut_short = ((data.get("choices") or [{}])[0].get("finish_reason") == "length"
+                             or (u.get("completion_tokens") or 0) >= 0.9 * max_tokens)
                 if not text.strip():
-                    last = "empty answer"
+                    last = "empty answer (ran out of room while thinking)" if cut_short else "empty answer"
                     self.meter.check()
+                    if cut_short and max_tokens < cap:
+                        max_tokens, force_low = min(max_tokens * 2, cap), True      # retry with more room and less thinking
                     continue
                 try:
                     return parse_json_text(text)
                 except (json.JSONDecodeError, ValueError):
-                    last = "the answer was not valid JSON"
+                    last = "the answer was cut off" if cut_short else "the answer was not valid JSON"
                     self.meter.check()
+                    if cut_short and max_tokens < cap:
+                        max_tokens, force_low = min(max_tokens * 2, cap), True
                     continue
             except urllib.error.HTTPError as e:
                 raw = e.read().decode("utf-8", "replace")

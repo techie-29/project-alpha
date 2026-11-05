@@ -138,3 +138,28 @@ def test_provider_stops_after_a_fatal_error_and_respects_limits(monkeypatch):
     except BudgetExceeded:
         pass
     assert s.meter.summary()["calls"] == 2
+
+
+def test_openrouter_cut_off_answer_is_retried_with_more_room(monkeypatch):
+    """An empty answer that used up all its tokens (the model was still thinking) is retried with more room and low thinking."""
+    import io, json as _j, urllib.request
+    from alpha_engine.llm import OpenRouterProvider
+    sent = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake(req, timeout=0):
+        body = _j.loads(req.data)
+        sent.append((body["max_tokens"], body.get("reasoning")))
+        if len(sent) == 1:
+            out = {"choices": [{"message": {"content": ""}, "finish_reason": "length"}], "usage": {"prompt_tokens": 10, "completion_tokens": body["max_tokens"], "cost": 0.001}}
+        else:
+            out = {"choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 20, "cost": 0.001}}
+        return Resp(_j.dumps(out).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    p = OpenRouterProvider(api_key="k", model="m"); p.min_interval = 0
+    assert p.complete_json("s", {"a": 1}, "write") == {"ok": True}
+    assert sent[1][0] == 2 * sent[0][0] and sent[1][1] == {"effort": "low"}
