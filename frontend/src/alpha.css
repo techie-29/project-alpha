@@ -69,3 +69,40 @@
 .al-partlabel{margin:0 0 4px 2px;font-size:11px;text-transform:uppercase;letter-spacing:.08em}
 .al-date{display:flex;flex-direction:column;gap:4px;margin-top:6px;color:var(--text)}.al-date code{font-size:11px}
 .al-inline{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:var(--muted);margin:4px 0}.al-inline select{font-size:12px;padding:3px 6px}
+/* ---- report v6: one card format, Summary / Findings / Explore / Data check ---- */
+.ar-hero{padding:4px 0}.ar-hero h2{font-size:25px;line-height:1.3;margin:8px 0 6px;max-width:900px;text-wrap:balance}
+.ar-sec-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.ar-top{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}.ar-list{display:grid;gap:14px}
+.ar-card{background:var(--surface);border:1px solid var(--border);border-left:4px solid #3987e5;border-radius:12px;padding:16px 18px;display:grid;gap:10px;align-content:start}
+.ar-card h3{margin:0;font-size:16.5px;line-height:1.35;text-wrap:pretty}.ar-card-big h3{font-size:18px}
+.ar-risk{border-left-color:#d03b3b}.ar-strength{border-left-color:#0ca30c}.ar-data{border-left-color:#c98500}.ar-neutral{border-left-color:#3987e5}
+.ar-card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.ar-chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.ar-tone{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:99px;border:1px solid}
+.ar-tone.ar-risk{color:#ff9a9a;border-color:#5a2a2a;background:#2a1111}.ar-tone.ar-strength{color:#7fd67f;border-color:#1f5a2a;background:#0e2a12}
+.ar-tone.ar-data{color:#f0c36a;border-color:#5a4a22;background:#1d170a}.ar-tone.ar-neutral{color:#8fc4ff;border-color:#24496f;background:#0f2236}
+.ar-sure,.ar-area{font-size:10.5px;color:#9fadb8;border:1px solid var(--border);border-radius:6px;padding:2px 7px;background:#121920}.ar-area{text-transform:capitalize}
+.ar-money{font-size:12.5px;color:#c3c2b7}.ar-money b{font-size:15px;color:#f0efec;font-variant-numeric:tabular-nums}
+.ar-points{margin:0;padding-left:18px;display:grid;gap:4px;font-size:13.5px;line-height:1.5;color:#d6dce1}.ar-why{margin:0;font-size:13px;color:#aab4bc;line-height:1.5}
+.ar-chart .al-fig{background:#0b1015;padding:10px}
+.ar-look{display:grid;gap:3px;background:#0f2236;border:1px solid #24496f;border-radius:8px;padding:9px 12px;font-size:13px}.ar-look strong{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:#8fc4ff}
+.ar-how summary{cursor:pointer;color:#8fc4ff;font-size:12px}.ar-how-item{display:grid;gap:6px;margin-top:10px}.ar-how-q{margin:0;font-size:12.5px;font-weight:600}.ar-result{max-height:180px}
+.ar-dropped summary{cursor:pointer;font-size:12.5px;color:var(--muted)}
+.ar-health{display:grid;gap:8px;width:100%;text-align:left;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;cursor:pointer;color:var(--text)}
+.ar-health:hover{border-color:#3987e5}.ar-health em{font-style:normal;font-size:12px;color:#8fc4ff}
+.ar-health-bar{display:flex;height:12px;border-radius:99px;overflow:hidden;background:#141b22}.ar-health-bar i{display:block;height:100%}
+.ar-health-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#c3c2b7}.ar-health-legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.ar-ok{background:#2c6e49}.ar-fixed{background:#3987e5}.ar-flag{background:#c98500}.ar-out{background:#5b6670}
+.ar-group h5{margin:14px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.ar-check{border:1px solid var(--border);border-radius:8px;margin:6px 0;padding:0 12px;background:#0b1015}.ar-check[open]{padding-bottom:10px}
+.ar-check summary{display:flex;gap:10px;align-items:center;padding:10px 0;cursor:pointer;font-size:13px}.ar-check p{margin:0 0 8px;font-size:13px;line-height:1.55;color:#c3ccd3}
+.ar-check-title{flex:1}.ar-check-n{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ar-st-icon{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;font-size:11px;font-weight:700;flex:none}
+.ar-st-pass .ar-st-icon{background:#0e2a22;color:#57e7b0}.ar-st-fixed .ar-st-icon{background:#0f2236;color:#8fc4ff}.ar-st-info .ar-st-icon{background:#141b22;color:#c3c2b7}
+.ar-st-warn .ar-st-icon{background:#1d170a;color:#f0c36a}.ar-st-fail .ar-st-icon{background:#2a1111;color:#ff9a9a}.ar-st-na .ar-st-icon{background:#141b22;color:#5b6670}
+.ar-st-fail{border-color:#5a2a2a}.ar-st-warn{border-color:#4a3d1f}
+.ar-count{display:inline-block;margin-left:6px;padding:0 6px;border-radius:99px;background:#132a3f;color:#8fc4ff;font-size:11px}
+.ar-cap{text-transform:capitalize}.ar-area-block>summary{cursor:pointer;margin-bottom:6px}.ar-answer .ar-short{font-size:14.5px;margin:0 0 8px}
+@media (max-width:540px){.ar-hero h2{font-size:21px}.ar-top{grid-template-columns:1fr}.ar-card{padding:14px}}
+/* charts: the site-wide svg stroke must not outline bars and labels */
+.recharts-surface{stroke:none}.recharts-text,.recharts-label{stroke:none}
+@media (max-width:540px){.al-tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.al-tile{padding:10px}.al-tile-value{font-size:19px}.al-delta{font-size:10.5px}}
