@@ -77,7 +77,7 @@ EVENT_DATE = re.compile(r"(\bdate\b|order|sale|txn|transaction|invoice|bill|post
 
 # dates that describe the row itself (when it expires, when the customer joined, when a plan starts or is due) - never 'when it happened'.
 # 'Ship date' or 'paid date' are left out on purpose: they are real events, and a log may have no other date.
-DESCRIBES_ROW = re.compile(r"(expir|\bexp\b|best before|use by|\bdue\b|deadline|birth|\bdob\b|\bdoj\b|join(ed|ing)?\b|enrol|signup|sign up|sign_up|registered|"
+DESCRIBES_ROW = re.compile(r"(expir|\bexp\b|best before|use by|\bdue\b|deadline|birth|\bdob\b|\bdoj\b|join(ed|ing)?\b|enrol|signup|sign up|sign_up|registered|launch|\bopened\b|opening date|\bexit\b|"
                            r"registration|member since|since|\bstart|\bend\b|valid|renewal|expected|planned|promised|last|updated|modified|added)", re.I)
 EVENT_STRONG = re.compile(r"(order|sale|txn|transaction|invoice|bill|posted|entry|booking|booked|visit|appointment|check.?in|timestamp|"
                           r"\bday\b|\bdt\b|period|month|week|quarter|as of|as on|snapshot|count|purchase|po\b|voucher)", re.I)
@@ -325,13 +325,15 @@ def prepare(df: pd.DataFrame, name: str = "file", confirmed: dict | None = None,
     roles = apply_owner_confirmations(prof, {k: v for k, v in confirmed.items() if not k.startswith("__")})
     _settle_dates(df, roles, confirmed, p)
     p.roles = roles
-    if len(df) <= 3 and not any(i["role"] == "time" for i in roles.values()):
+    from .roles import id_header
+    keyed = any(id_header(c) and i.get("unique") == len(df) for c, i in roles.items() if not str(c).startswith("_"))
+    if len(df) <= 3 and not any(i["role"] == "time" for i in roles.values()) and not keyed:     # 3 stores with a store_id are a list, not a summary
         p.kind = "summary"
         p.notes.append("Looks like a summary of another file (very few rows, no dates). Not analysed; used only for cross-checking totals.")
         return p
     _build_time(df, roles, confirmed, p)
     if p.time_col is None:
-        p.kind = "reference" if len(df) > 3 else "summary"
+        p.kind = "reference" if (len(df) > 3 or keyed) else "summary"
         p.notes.append("No dates in this file. It is used as extra detail for files it links to; on its own only a snapshot view is possible (no 'what changed').")
     else:
         dates = df["_t"].dropna()

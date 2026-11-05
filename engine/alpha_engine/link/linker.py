@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, asdict, field
 import pandas as pd
 from ..understand.roles import id_header
+from ..model.concepts import ID_VALUE
 from ..understand.prepare import Prepared, prepare
 
 AUTO_USE = 0.85
@@ -54,6 +55,16 @@ def _keys(df: pd.DataFrame, col: str) -> pd.Series:
     return df[col].dropna().astype(str).str.strip()
 
 
+ID_WORDS = {"id", "code", "no", "number", "num", "key", "ref", "name"}
+
+
+def _shared_word(a: str, b: str) -> bool:
+    """'home_store' and 'store_id' share 'store'; 'city' and 'store_city' share nothing id-like on both sides."""
+    wa = {w for w in re.split(r"[_\s\-]+", a.lower()) if w and w not in ID_WORDS and len(w) >= 3}
+    wb = {w for w in re.split(r"[_\s\-]+", b.lower()) if w and w not in ID_WORDS and len(w) >= 3}
+    return bool(wa & wb)
+
+
 def _key_like(col: str, info: dict) -> bool:
     if info.get("unique", 0) < 2:
         return False
@@ -77,9 +88,15 @@ def find_links(tables: dict[str, Prepared]) -> list[Link]:
                     if not _key_like(cb, ib):
                         continue
                     ns = _name_score(ca, cb)
-                    if min(ia.get("unique", 0), ib.get("unique", 0)) < 20 and not (ns == 1.0 and id_header(ca)):
-                        continue                                # a short list links only through a shared id column (store_id, supplier_id)
-                    if ia["role"] == "category" and ns < 1.0:
+                    small = min(ia.get("unique", 0), ib.get("unique", 0)) < 20
+                    by_values = False
+                    if small and not (ns == 1.0 and id_header(ca)):
+                        # 'home_store' holding store codes still points at the stores list: a shared word, codes on both sides,
+                        # and (checked below) every value found among the list's ids
+                        if not (_shared_word(ca, cb) and (id_header(ca) or id_header(cb))):
+                            continue                            # a short list links only through a shared id column (store_id, supplier_id)
+                        by_values = True
+                    if ia["role"] == "category" and ns < 1.0 and not by_values:
                         continue
                     ka, kb = _keys(A.df, ca), _keys(B.df, cb)
                     ua, ub = ka.nunique(), kb.nunique()
@@ -93,8 +110,10 @@ def find_links(tables: dict[str, Prepared]) -> list[Link]:
                         parent_is_a = a_unique
                     (pn, pc, pk), (cn, cc, ck) = ((a, ca, ka), (b, cb, kb)) if parent_is_a else ((b, cb, kb), (a, ca, ka))
                     cov = float(ck.drop_duplicates().isin(set(pk)).mean())
-                    if cov < 0.5:
+                    if cov < 0.5 or (by_values and (cov < 0.95 or not id_header(pc) or pk.str.fullmatch(ID_VALUE).mean() < 0.8)):
                         continue
+                    if by_values:
+                        ns = max(ns, 0.7)
                     size = 1.0 if pk.nunique() >= 100 else 0.5
                     numeric_small = pk.str.fullmatch(r"\d{1,4}").mean() > 0.9
                     conf = 0.5 * cov + 0.3 * ns + 0.2 * size

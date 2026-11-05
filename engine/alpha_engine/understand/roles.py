@@ -218,7 +218,7 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
         v = s.dropna().astype(str).str.strip()
         low_card = nu <= max(60, 0.002 * n_rows)
         mid_card = nu <= 500 and (nu <= 0.05 * nn or (nn <= 20000 and nu <= 0.15 * nn)) and not PII_HEAD.search(name)
-        pat_id = bool(v.head(1000).str.match(ID_PATTERN).mean() > 0.9) and nu > 60
+        pat_id = bool(v.head(1000).str.match(ID_PATTERN).mean() > 0.8) and nu > 60          # a stand-in like 'WALKIN' on some rows is allowed
         sid = 0.0
         if strong_id:
             sid += 0.7; reasons.append("Header names a code/identifier.")

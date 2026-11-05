@@ -69,6 +69,10 @@ def _eq(t: str, u: str) -> bool:
 GENERIC = {"type", "class", "total", "amount", "value", "rate", "item", "line", "name", "group", "kind", "mode", "level", "index", "balance", "score", "share", "days", "bill"}
 
 
+QUALIFIERS = {"amount", "amt", "value", "val", "total", "monthly", "daily", "weekly", "yearly", "annual", "rs", "inr", "usd", "eur", "gbp", "aed", "sgd",
+              "aud", "cad", "in", "of", "the", "current", "curr"}
+
+
 def name_score(col: str, synonyms) -> tuple[float, str | None]:
     nt = tokens(col)
     if not nt:
@@ -81,7 +85,9 @@ def name_score(col: str, synonyms) -> tuple[float, str | None]:
         if not hit:
             continue
         cov = hit / len(st)
-        expl = sum(1 for u in nt if any(_eq(t, u) for t in st)) / len(nt)
+        content = [u for u in nt if u not in QUALIFIERS] or nt          # 'gst amount', 'budget inr', 'monthly salary': the qualifier explains nothing
+        expl_c = sum(1 for u in content if any(_eq(t, u) for t in st)) / len(content)
+        expl = expl_c if expl_c > 0 else sum(1 for u in nt if any(_eq(t, u) for t in st)) / len(nt)   # 'Final Amount' still matches 'amount' as before
         sc = cov * (0.3 + 0.7 * expl) * (1.0 if cov == 1 else 0.8)
         r = SequenceMatcher(None, whole, syn).ratio()
         if r > 0.86:
@@ -96,7 +102,7 @@ def name_score(col: str, synonyms) -> tuple[float, str | None]:
 # ---------------- value evidence ----------------
 def num_stats(s: pd.Series) -> dict | None:
     v = pd.to_numeric(s, errors="coerce").dropna()
-    if len(v) < 5:
+    if len(v) < 2:
         return None
     if len(v) > SAMPLE:
         v = v.sample(SAMPLE, random_state=0)
@@ -220,7 +226,7 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
         if cs is None:
             return 0.0, None
         coded = sum(1 for v in cs["vals"] if ID_VALUE.match(v)) / max(len(cs["vals"]), 1)
-        if cs["nu"] >= 20 and coded >= 0.8:
+        if cs["nu"] >= 2 and coded >= 0.8:
             return (0.75 if cid == "entity_id" else 0.6), "values are codes like " + cs["vals"][0]
         return (0.5 if cs["nu"] >= 20 else 0.1), "many distinct codes" if cs["nu"] >= 20 else None
     if c.kind == "date":
@@ -416,7 +422,7 @@ def file_role(p, concept_of: dict[str, str], fhint: dict[str, float]) -> dict:
             return {"role": "lines", "entity": "order line", "key": oid[0], "reason": f"several rows per {oid[0]}: the lines of each order"}
         for c in keys:
             u = df[c].nunique(dropna=True)
-            if u >= 0.98 * df[c].notna().sum() and u >= 5:
+            if u >= 0.98 * df[c].notna().sum() and (u >= 5 or (u >= 2 and (id_header(c) or ID_HEAD.search(c)))):     # 3 stores with a store_id are a list
                 ent = CONCEPTS[concept_of[c]].entity
                 best = max(("customer", "product", "supplier", "employee", "site"), key=lambda e: fhint.get(e, 0))
                 if fhint.get(best, 0) >= 0.6:
@@ -548,6 +554,9 @@ def _context_rules(df, cols: dict, nst: dict, role: dict, fhint: dict) -> list[s
             _set(v, "supplier_id", "in a purchase file, the party is the supplier", 0.7)
         if v["concept"] == "discount" and st and st.get("max", 9) <= 1 and st.get("min", -1) >= 0 and st.get("int", 1) < 0.98:
             _set(v, "discount_pct", f"values run from {st['min']:g} to {st['max']:g}: a share of the price (discount %), not an amount", 0.75)
+    money_flows = [c for c, v in cols.items() if CONCEPTS[v["concept"]].money and CONCEPTS[v["concept"]].agg == "sum"]
+    if fhint.get("transactions", 0) >= 0.6 and fhint.get("expense", 0) < 0.6 and len(money_flows) == 1 and cols[money_flows[0]]["concept"] == "revenue":
+        _set(cols[money_flows[0]], "revenue", "the only amount in a table of sales / invoices / orders", 0.78)
     if fhint.get("expense", 0) >= 0.6:
         for c, v in cols.items():
             if v.get("source") == "auto" and v["concept"] in ("revenue", "money_other", "gross_revenue") and name_score(c, CONCEPTS["revenue"].synonyms)[0] < 0.9:
@@ -596,7 +605,7 @@ def _header_rules(df, cols: dict, nst: dict, cst: dict) -> None:
                 promised = bool(t & {"promised", "sla", "target", "expected", "planned", "estimated"})
                 _set(v, "promised_duration" if promised else "duration", f"the header gives a time unit ({', '.join(sorted(t & UNIT_TOKENS))})", 0.78)
                 continue
-            if t & SHARE_TOKENS and st["min"] >= 0 and con not in ("discount_pct", "margin_pct", "percent", "rating"):
+            if t & SHARE_TOKENS and st["min"] >= 0 and con not in ("discount_pct", "margin_pct", "rating"):
                 fraction = st["max"] <= 1.0 and st["int"] < 0.98
                 pct_scale = bool(t & {"pct", "percent", "percentage"}) and st["max"] <= 100
                 if fraction or pct_scale:
@@ -615,15 +624,33 @@ def _header_rules(df, cols: dict, nst: dict, cst: dict) -> None:
             if con == "units_ordered" and not commerce and t <= {"orders", "order", "count", "number", "no", "of", "total"}:
                 _set(v, "activity_count", "the number of orders (a count of actions), not units bought", 0.7)
                 continue
+        if CONCEPTS[con].kind == "key" and con not in ("order_id", "entity_id") and "name" in t:
+            twin = [k for k, w in cols.items() if k != c and w["concept"] == con and "name" not in set(tokens(k)) and (id_header(k) or ID_HEAD.search(k))]
+            if twin:
+                _set(v, "name_label", f"the name that goes with '{twin[0]}' (the id column is the key)", 0.85)
+                continue
+        if con == "unit_price" and t & {"list", "mrp", "rrp", "msrp", "original", "catalogue", "catalog", "regular", "base", "standard", "tag"} \
+                and any(w["concept"] == "unit_price" for k, w in cols.items() if k != c):
+            _set(v, "list_price", "the price before discount; the table has a separate selling price", 0.85)
+            continue
+        if con == "name_label" and t & {"review", "comment", "feedback", "ticket", "complaint", "message", "subject", "remark", "remarks", "note", "notes"}:
+            _set(v, "free_text", "a title or comment someone wrote, not the name of a thing", 0.75)
+            continue
+        if con == "segment" and t & {"type", "class", "kind", "tier", "category"} and not t & {"customer", "client", "member", "membership", "loyalty", "account", "user"} \
+                and "customer_id" not in has:
+            v.update(concept="group", label=CONCEPTS["group"].label, reasons=["a type or class of something other than customers"] + v["reasons"][:2])
+            continue
         if con == "status" and t & {"reason", "cause", "why"}:
             _set(v, "reason", "the header names a reason", 0.75)
-        if con == "product_group" and not (has & {"product_id", "unit_price", "unit_cost", "quantity", "stock_level", "name_label"}) \
-                and not t & {"product", "item", "sku", "brand", "menu", "dish", "service"}:
+        money_in = has & {"product_id", "unit_price", "unit_cost", "quantity", "stock_level", "name_label", "revenue", "gross_revenue", "cost"}
+        if con == "product_group" and (t & {"expense", "cost", "ticket", "issue", "complaint", "spend", "budget", "account", "ledger"}
+                                       or (not money_in and not t & {"product", "item", "sku", "brand", "menu", "dish", "service", "cuisine", "department"})):
             v.update(concept="group", label=CONCEPTS["group"].label, reasons=["a category in a table with no products (expense or ticket type)"] + v["reasons"][:2])
     # two columns read as the order: the one whose header names the order keeps it, the other is another record's id
     oids = [c for c, v in cols.items() if v["concept"] == "order_id" and v.get("source") == "auto"]
     if len(oids) > 1:
-        named = [c for c in oids if set(tokens(c)) & ORDERISH]
+        # the one that says 'order' is the order; otherwise the first (files lead with their own number: GRN No before the supplier's Invoice No)
+        named = [c for c in oids if set(tokens(c)) & {"order", "orders"}] or oids[:1]
         if named:
             for c in oids:
                 if c not in named:
@@ -775,10 +802,9 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
     if role["role"] == "transactions":
         for c, v in cols.items():
             named = nscore(c, v["concept"]) >= 0.8          # 'Customer ID', 'Account ID': the header already says what it is
-            orderish = bool(set(tokens(c)) & ORDERISH) or set(tokens(c)) <= GENERIC_ID
-            others = any(vv["concept"] == "order_id" for kk, vv in cols.items() if kk != c)
+            others = any(vv["concept"] == "order_id" for kk, vv in cols.items() if kk != c)    # a ticket_id next to an order_id is the ticket
             if CONCEPTS[v["concept"]].kind == "key" and df[c].nunique() >= 0.9 * df[c].notna().sum() and v["concept"] not in ("order_id",) and v["confidence"] < 0.8 and not named \
-                    and orderish and not others:
+                    and not others:
                 v.update(concept="order_id", label=CONCEPTS["order_id"].label, confidence=max(v["confidence"], 0.7), reasons=["unique per row in a transaction log"] + v["reasons"][:2])
     # a number that never changes within a customer (or product) describes that customer, e.g. lifetime value or age.
     # It must be averaged over customers, never added up across their orders.
@@ -825,11 +851,59 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
         if c in usable and cid in CONCEPTS:
             prev = cols.get(c, {})
             cols[c] = {"concept": cid, "label": CONCEPTS[cid].label, "confidence": 1.0, "reasons": ["you confirmed this"], "alternatives": prev.get("alternatives", []), "source": "owner"}
-    for v in cols.values():
-        v["needs_confirmation"] = v["source"] == "auto" and v["concept"] not in ("number", "group", "personal", "free_text") and (
-            v["confidence"] < 0.55 or v["concept"] in ("entity_id", "money_other")
-            or (CONCEPTS[v["concept"]].kind == "date" and v["concept"] != "event_date" and v["confidence"] < 0.65))
+    _calibrate(cols, nst, cst)
+    for c, v in cols.items():
+        if c.startswith("__"):
+            v["needs_confirmation"] = False
+            continue
+        close = _close_call(c, v, nst, cst)
+        if close is None and v["concept"] == "revenue" and v["confidence"] < 0.85 and any(w["concept"] == "money_other" for k, w in cols.items() if k != c):
+            close = "money_other"                       # two loosely named amounts: which one is the sale is the owner's call
+        v["needs_confirmation"] = v["source"] == "auto" and v["concept"] not in ("number", "group", "personal", "free_text", "entity_id") and (
+            v["confidence"] < 0.6 or v["concept"] == "money_other" or close is not None)
+        if close and v["needs_confirmation"]:
+            v["unsure_between"] = close
     return {"columns": cols, "file": role, "identities": ids, "notes": context_notes}
+
+
+VALUE_CERTAIN = {"yes_no", "gender", "currency", "sentiment", "movement_type", "status", "channel", "payment_method", "rating", "age"}
+MONEY_SUM = {c.id for c in NUMBER_CONCEPTS if c.agg == "sum"}
+
+
+def _calibrate(cols: dict, nst: dict, cst: dict) -> None:
+    """How sure we are should follow the evidence: a header that names the meaning, with values that fit it, is a confident
+    read (ship_date -> completed date, budget_inr -> plan, Yes/No -> yes/no). Never lowers a confidence, never changes a meaning."""
+    for c, v in cols.items():
+        if c.startswith("__") or v.get("source") != "auto" or v["concept"] not in CONCEPTS:
+            continue
+        con = CONCEPTS[v["concept"]]
+        ns = name_score(c, con.synonyms)[0] if con.synonyms else 0.0
+        vs, _ = value_score(v["concept"], nst.get(c), cst.get(c))
+        floor = None
+        # numbers and keys must show values that fit; for groups, dates and text the values can only rule a meaning out
+        if vs >= 0.4 or (con.kind in ("date", "text", "group") and vs > 0):
+            floor = 0.92 if ns >= 0.9 else 0.84 if ns >= 0.75 else 0.74 if ns >= 0.6 else None
+        if v["concept"] in VALUE_CERTAIN and vs >= 0.85:
+            floor = max(floor or 0, 0.82)
+        if floor and floor > v["confidence"]:
+            v["confidence"] = round(floor, 2)
+            why = "the header names it and the values fit" if ns >= 0.6 else "every value fits this meaning"
+            if why not in v["reasons"]:
+                v["reasons"] = [why] + v["reasons"][:3]
+
+
+def _close_call(c: str, v: dict, nst: dict, cst: dict) -> str | None:
+    """A runner-up that is about as likely AND would change how the column is added up (a sale vs a cost, a flow vs a level)."""
+    alts = [(cid, sc) for cid, sc in (v.get("alternatives") or []) if cid in CONCEPTS and cid != v["concept"]]
+    if not alts or v["confidence"] >= 0.85:
+        return None
+    cid, sc = alts[0]
+    a, b = CONCEPTS[v["concept"]], CONCEPTS[cid]
+    if sc < v["confidence"] - 0.08 or a.kind != b.kind:
+        return None
+    if a.kind == "number" and (a.money != b.money or a.agg != b.agg or (v["concept"] in MONEY_SUM and cid in MONEY_SUM and a.polarity != b.polarity)):
+        return cid
+    return None
 
 
 def unify_links(models: dict[str, dict], links: list) -> None:
@@ -850,6 +924,10 @@ def unify_links(models: dict[str, dict], links: list) -> None:
                 best = {"concept": ec, "confidence": max(a["confidence"], b["confidence"], 0.8)}
         for x in (a, b):
             if x.get("source") == "owner":
+                continue
+            if x["concept"] == best["concept"]:
+                x["confidence"] = max(x["confidence"], best["confidence"], 0.85)
+                x["needs_confirmation"] = False
                 continue
             if x["concept"] != best["concept"]:
                 x.update(concept=best["concept"], label=CONCEPTS[best["concept"]].label, confidence=max(x["confidence"], best["confidence"]),
