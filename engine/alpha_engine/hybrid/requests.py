@@ -124,7 +124,10 @@ def _keys(F, d: pd.DataFrame, by: list) -> tuple[list, list[str]]:
                 raise Bad("bins must be numbers")
             if len(edges) < 2:
                 raise Bad("bins need two different edges")
-            keys.append(pd.cut(_num(d, b["col"]), edges, include_lowest=True).astype(str)); names.append(f"{b['col']} band")
+            share = max(abs(edges[0]), abs(edges[-1])) <= 1.5 and b["col"] in ("discount_pct", "margin_pct", "percent") or (max(abs(e) for e in edges) <= 1 and "pct" in b["col"])
+            lab = (lambda x: f"{x * 100:g}%") if share else (lambda x: f"{x:,.6g}")
+            labels = [f"{lab(edges[i])}–{lab(edges[i + 1])}" for i in range(len(edges) - 1)]
+            keys.append(pd.cut(_num(d, b["col"]), edges, include_lowest=True, labels=labels).astype(str)); names.append(f"{b['col']} band")
         else:
             raise Bad(f"bad 'by' item {b}")
     return keys, names
