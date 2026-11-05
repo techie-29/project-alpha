@@ -89,7 +89,7 @@ def verify(text: str, *produced) -> tuple[bool, str]:
 # written in one of the ways people write numbers: rounded to what is shown, as a percentage of a share (0.142 -> 14.2%),
 # with K / M / B / lakh / crore, or as the change, difference or share between TWO numbers of the same cited result
 # (14.0% -> 6.2% 'fell 7.8 points', 'down 56%'). Nothing else: no x1000 tricks, no numbers from other results.
-NUM_STRICT = re.compile(r"(?<![\w.])([-+]?\d[\d,]*\.?\d*)\s*(%|percentage points|points|pts|pp|lakhs?|lacs?|crores?|cr\b|[kKmMbBL]\b)?", re.I)
+NUM_STRICT = re.compile(r"(?<![\w.])([-+]?\d[\d,]*\.?\d*)-?\s*(%|percentage[- ]points?|points?|pts|pp|lakhs?|lacs?|crores?|cr\b|[kKmMbBL]\b)?", re.I)
 SCALE = {"k": 1e3, "m": 1e6, "b": 1e9, "l": 1e5, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5, "crore": 1e7, "crores": 1e7, "cr": 1e7}
 
 
@@ -101,7 +101,7 @@ def _numbers_strict(text: str) -> list[tuple[float, int, str]]:
     t = re.sub(MONTHS + r"\s+\d{4}\b", " ", t, flags=re.I)
     t = re.sub(r"\b(Q[1-4]|FY|H[12])\s?'?\d{2,4}\b", " ", t, flags=re.I)
     for m in NUM_STRICT.finditer(t):
-        raw, suf = m.group(1).replace(",", "").rstrip("."), (m.group(2) or "").lower()
+        raw, suf = m.group(1).replace(",", "").rstrip("."), re.sub(r"[-\s]+", " ", (m.group(2) or "").lower()).strip()
         try:
             v = float(raw)
         except ValueError:
@@ -109,7 +109,7 @@ def _numbers_strict(text: str) -> list[tuple[float, int, str]]:
         if re.fullmatch(r"(19|20)\d\d", raw) and not suf:
             continue
         dec = len(raw.split(".")[1]) if "." in raw else 0
-        kind = "%" if suf == "%" else ("pts" if suf in ("percentage points", "points", "pts", "pp") else "")
+        kind = "%" if suf == "%" else ("pts" if suf in ("percentage points", "percentage point", "points", "point", "pts", "pp") else "")
         if suf in SCALE:
             v *= SCALE[suf]
             dec = -1                                                  # 1.2M: shown to 2 significant digits
@@ -180,6 +180,8 @@ def _derived(v: float, dec: int, kind: str, base: list[float]) -> bool:
                 cands.append((a - b) * 100)                               # difference of two shares, in points
             if kind == "":
                 cands.append(a - b)
+                if abs(a + b) >= 100:
+                    cands.append(a + b)                                   # 'together they lose 28,700'
             if kind in ("%", "pts"):
                 cands += [(a - b)] if abs(a) > 1.5 else []
             for c in cands:
