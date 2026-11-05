@@ -66,6 +66,7 @@ export default function ReadingReview({ reading, choices, setChoices }) {
             <td><ConceptSelect col={c} concepts={reading.concepts} value={mine} onChange={(v) => setConcept(key, v)}/>{mine && <span className="al-chip al-chip-mine">your choice</span>}</td>
             <td>{c.confidence != null ? `${Math.round(c.confidence * 100)}%` : "—"}{c.needs_confirmation && !mine && <span className="al-chip al-chip-warn">please check</span>}</td>
             <td className="al-why">{c.source === "memory" ? "You chose this before. " : c.source === "ai" ? "AI helper. " : ""}{(c.reasons || []).slice(0, 2).join("; ")}
+              {c.unsure_between && !mine && <div className="al-muted">Could also be: {(reading.concepts.find((x) => x.id === c.unsure_between) || {}).label || c.unsure_between}. Pick the right one.</div>}
               {c.date && <DateLine f={f} c={c} value={((choices.dateOrder || {})[f.name] || {})[c.name]} onChange={(o) => setDateOrder(f.name, c.name, o)}/>}</td></tr>; })}</tbody></table></div>}
     </div>)}
   </div>;

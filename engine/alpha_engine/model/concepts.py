@@ -44,6 +44,8 @@ CONCEPTS: dict[str, Concept] = {c.id: c for c in [
        "returned quantity", "sales return qty"), "sales"),
     _c("tax", "Tax", "number", "sum", True, 0, ("cgst", "sgst", "igst", "utgst", "tax amt", "tax value", "tax", "tax amount", "vat", "gst", "sales tax", "iva", "mwst", "tva", "cess"), "sales"),
     _c("unit_price", "Unit price", "number", "mean", True, 0, ("price", "unit price", "selling price", "sale price", "mrp", "rate", "list price", "price per unit", "precio", "preis", "prix", "unit rate"), "products"),
+    _c("list_price", "List price / MRP", "number", "mean", True, 0, ("list price", "mrp", "rrp", "msrp", "original price", "catalogue price", "catalog price", "regular price",
+       "base price", "price before discount", "standard price", "tag price"), "products"),
     _c("unit_cost", "Unit cost", "number", "mean", True, 0, ("purchase rate", "buying rate", "cost rate", "landed price", "landing cost", "unit cost", "cost price", "purchase price", "buy price", "cost per unit", "standard cost"), "products"),
     _c("money_other", "Other amount", "number", "sum", True, 0, ("value", "balance", "payment", "paid", "charge", "credit", "debit", "lifetime value", "clv", "ltv"), "general"),
     # ---- quantities, levels ----
@@ -114,7 +116,9 @@ CONCEPTS: dict[str, Concept] = {c.id: c for c in [
     _c("due_date", "Due / expected date", "date", synonyms=("due date", "expected date", "expected delivery", "eta", "promised date", "delivery due", "required by", "need by", "deadline", "target date", "sla date"), area="operations"),
     _c("done_date", "Completed / received date", "date", synonyms=("received date", "receipt date", "grn date", "delivered date", "delivery date", "ship date", "shipped date", "dispatch date", "completed date",
        "completion date", "closed date", "resolved date", "paid date", "payment date", "actual date", "arrival date"), area="operations"),
-    _c("signup_date", "Start date", "date", synonyms=("joining date", "date joined", "doj", "enrolment date", "enrollment date", "signup date", "join date", "joined", "registration date", "first purchase", "start date", "created at", "member since"), area="customers"),
+    _c("end_date", "End / exit date", "date", synonyms=("end date", "exit date", "leaving date", "termination date", "last working day", "relieving date", "end on",
+       "ends on", "valid to", "closing date", "churn date", "cancellation date", "left on", "resigned on"), area="general"),
+    _c("signup_date", "Start date", "date", synonyms=("joining date", "date joined", "doj", "enrolment date", "enrollment date", "signup date", "join date", "joined", "registration date", "first purchase", "start date", "created at", "member since", "opened", "opening date", "open date", "launch date", "launched", "launched on", "go live date", "valid from", "effective from"), area="customers"),
     # ---- not for analysis ----
     _c("personal", "Personal detail", "text", synonyms=("customer name", "email", "phone", "mobile", "address", "street", "contact", "full name", "first name", "last name", "client name", "patient name", "employee name"), area="general"),
     _c("free_text", "Free text", "text", synonyms=("review", "comment", "notes", "remarks", "feedback text", "message", "long description"), area="general"),
@@ -142,4 +146,4 @@ YES_NO_VALUES = {"yes", "no", "y", "n", "true", "false", "1", "0", "t", "f"}
 ID_HEAD = re.compile(r"(^|[_\s\-])(id|code|no|num|number|key|ref|sku|uid|uuid)($|[_\s\-])|[a-z]Id$|^sku$|^upc$|^ean$|barcode", re.I)
 PERSON_NAME = re.compile(r"^(name|full_?name|first_?name|last_?name|(customer|client|patient|user|member|contact|employee|owner|buyer|person)[_\s]?name)$", re.I)
 ALWAYS_PII = re.compile(r"(e_?mail|phone|mobile|address|street|ssn|aadhaar|passport|dob|birth)", re.I)
-ID_VALUE = re.compile(r"^[A-Za-z]{1,8}[-_ /]?\d{2,}$|^\d{4,}$")
+ID_VALUE = re.compile(r"^[A-Za-z]{1,8}[-_ /]?\d{2,}$|^\d{4,}$|^[A-Z0-9]{2,8}(?:[-_/][A-Z0-9]{2,8})+$")   # INV0012, 40031, STR-MUM, WH-ONL

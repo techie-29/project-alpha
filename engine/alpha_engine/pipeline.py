@@ -138,7 +138,11 @@ def _reading(files, tables, links, model) -> dict:
             v = fm["columns"].get(c, {})
             cols.append({"name": c, "type": i["role"], "type_confidence": i["confidence"], "concept": v.get("concept"), "label": v.get("label"),
                          "confidence": v.get("confidence"), "reasons": v.get("reasons", [])[:3], "alternatives": v.get("alternatives", [])[:3],
-                         "needs_confirmation": bool(v.get("needs_confirmation")) or bool(i.get("needs_confirmation") and i["role"] not in ("empty", "constant")),
+                         # a column whose meaning is clear does not need its type checked (an id read as an id, a rating as a number)
+                         "needs_confirmation": bool(v.get("needs_confirmation")) or bool(i.get("needs_confirmation") and i["role"] not in ("empty", "constant")
+                                                                                          and (v.get("confidence") or 0) < 0.7
+                                                                                          and v.get("concept") not in ("entity_id", "number", "group", "personal", "free_text", None)),
+                         "unsure_between": v.get("unsure_between"),
                          "source": v.get("source", "auto"), "unique": i.get("unique")})
             if i["role"] == "time":
                 cols[-1]["date"] = {"order": i.get("date_order"), "certain": bool(i.get("date_certain", True)), "example": i.get("date_example"),
