@@ -249,7 +249,7 @@ class OpenRouterProvider(Provider):
             return self.reasoning
         if self.reasoning in ("model", "default", "off", "none"):
             return None
-        return STEP_EFFORT.get(purpose, "low")
+        return STEP_EFFORT.get(purpose)          # steps not listed: the model's own default
 
     def _body(self, system: str, text_in: str, max_tokens: int, force_low: bool = False, purpose: str = "") -> bytes:
         b = {"model": self.model,
