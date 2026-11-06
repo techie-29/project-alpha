@@ -188,7 +188,7 @@ LOSS_VALUE = re.compile(r"damage|expired|expiry|wastage|waste|write ?off|writeof
 
 
 def s_frac(s: pd.Series, rx) -> float:
-    v = s.dropna().astype(str).str.strip()
+    v = s.dropna().alpha.strip_str()
     if v.empty:
         return 0.0
     vc = v.value_counts()

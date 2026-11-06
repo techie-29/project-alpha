@@ -73,7 +73,7 @@ def clean_numeric(s: pd.Series) -> pd.Series | None:
         return None
 
     def conv(x: pd.Series) -> pd.Series:
-        x = x.astype(str).str.strip()
+        x = x.alpha.strip_str()
         neg = x.str.match(r"^\(.*\)$") | x.str.startswith("-")
         core = x.str.replace(r"^\((.*)\)$", r"\1", regex=True).str.replace(CUR, "", regex=True).str.lstrip("-")
         v = pd.to_numeric(core, errors="coerce")
@@ -119,7 +119,7 @@ def _plausible(parsed: pd.Series) -> bool:
 def _bool_like(s: pd.Series) -> bool:
     if s.dtype == bool:
         return True
-    u = set(s.dropna().astype(str).str.strip().str.lower().unique())
+    u = set(s.dropna().alpha.strip_str().str.lower().unique())
     return 0 < len(u) <= 2 and u <= {"true", "false", "yes", "no", "y", "n", "t", "f", "0", "1", "1.0", "0.0"}
 
 
@@ -215,7 +215,7 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
         scores = {"id": sid, "measure": smeas, "category": scat}
         info["cleaned_text_numbers"] = bool(_is_text(s))
     else:
-        v = s.dropna().astype(str).str.strip()
+        v = s.dropna().alpha.strip_str()
         low_card = nu <= max(60, 0.002 * n_rows)
         mid_card = nu <= 500 and (nu <= 0.05 * nn or (nn <= 20000 and nu <= 0.15 * nn)) and not PII_HEAD.search(name)
         pat_id = bool(v.head(1000).str.match(ID_PATTERN).mean() > 0.8) and nu > 60          # a stand-in like 'WALKIN' on some rows is allowed

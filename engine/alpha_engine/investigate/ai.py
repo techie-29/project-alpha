@@ -23,7 +23,7 @@ MAX_STEPS = 3
 
 
 def _safe_values(s: pd.Series, k: int = 8) -> list[str]:
-    v = s.dropna().astype(str).str.strip()
+    v = s.dropna().alpha.strip_str()
     if v.nunique() > 40:
         return []
     out = [x for x in v.value_counts().index[:k] if len(x) <= 30 and re.fullmatch(r"[\w .,&/()+%'-]+", x)]
@@ -67,7 +67,7 @@ def review_concepts(model: dict, tables: dict, provider: Provider | None, limit:
         return {"status": "nothing to review"}
     allowed = sorted(c.id for c in CONCEPTS.values())
     try:
-        ans = provider.complete_json(REVIEW_SYSTEM, {"columns": todo[:limit], "allowed_concepts": allowed})
+        ans = provider.complete_json(REVIEW_SYSTEM, {"columns": todo[:limit], "allowed_concepts": allowed}, "read-meanings")
     except ProviderError as e:
         return {"status": "unavailable", "error": str(e)[:120]}
     accepted = 0

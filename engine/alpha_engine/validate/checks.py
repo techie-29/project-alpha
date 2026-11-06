@@ -625,9 +625,9 @@ def _orphans(R: _Run, name: str, links: list, tables: dict):
         child, parent = tables[name].df, tables[l.parent].df
         if l.child_col not in child.columns or l.parent_col not in parent.columns:
             continue
-        have = set(parent[l.parent_col].dropna().astype(str).str.strip())
-        miss = child[l.child_col].notna() & ~child[l.child_col].astype(str).str.strip().isin(have)
-        vals = child.loc[miss, l.child_col].astype(str).str.strip()
+        have = set(parent[l.parent_col].dropna().alpha.strip_str())
+        miss = child[l.child_col].notna() & ~child[l.child_col].alpha.strip_str().isin(have)
+        vals = child.loc[miss, l.child_col].alpha.strip_str()
         if miss.any() and vals.nunique() == 1 and miss.sum() >= 20 and not re.search(r"\d{3,}", vals.iloc[0]):
             found = True                                # one stand-in word on every unmatched row ('WALKIN', 'GUEST', 'CASH'): sales without a record
             R.put("orphan_codes", "info", f"{int(miss.sum()):,} rows use '{vals.iloc[0]}' as the {l.child_col} ({miss.mean():.1%}): a stand-in for sales "
