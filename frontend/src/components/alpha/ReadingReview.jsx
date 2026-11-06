@@ -35,10 +35,12 @@ export default function ReadingReview({ reading, choices, setChoices }) {
   const setTimeCol = (file, col) => setChoices((c) => ({ ...c, timeCol: { ...(c.timeCol || {}), [file]: col } }));
   const unsure = useMemo(() => reading.files.reduce((n, f) => n + f.columns.filter((c) => c.needs_confirmation && !choices.concepts[`${f.name}::${c.name}`]).length, 0), [reading, choices]);
   const pending = reading.links.filter((l) => l.needs_confirmation && choices.links[l.key] === undefined);
+  const groups = useMemo(() => groupByWorkbook(reading.files), [reading]);
   return <div className="al-stack">
     <div className={`al-panel ${unsure || pending.length ? "al-caveat" : ""}`}>
       <h3 className="al-h3">How I read your business</h3>
       <p>{unsure || pending.length ? `${unsure} column${unsure === 1 ? "" : "s"} and ${pending.length} link${pending.length === 1 ? "" : "s"} need a quick look (marked "please check"). You can run now, but findings that use them are less certain.` : "Everything was clear. Change anything that is wrong, then run the analysis. Alpha remembers your choices for next time."}</p>
+      {reading.files.length > groups.length && <p className="al-muted">{groups.length} file{groups.length === 1 ? "" : "s"} → {reading.files.length} tables. Each sheet (tab) of an Excel file is read as its own table, so a workbook with 7 sheets shows 7 tables below, grouped under its file name.</p>}
       {reading.ai_review?.status === "ok" && <p className="al-muted">The AI helper reviewed {reading.ai_review.reviewed} unsure column(s); {reading.ai_review.accepted} suggestion(s) passed Alpha's value checks.</p>}
     </div>
     {reading.links.length > 0 && <div className="al-panel"><h4>How the files connect</h4>
@@ -47,12 +49,14 @@ export default function ReadingReview({ reading, choices, setChoices }) {
         <input type="checkbox" checked={on} onChange={(e) => setLink(l.key, e.target.checked)}/>
         <span><strong>{l.child}</strong> · {l.child_col} → <strong>{l.parent}</strong> · {l.parent_col}<small>{Math.round(l.coverage * 100)}% of keys match.{l.needs_confirmation && choices.links[l.key] === undefined ? " Please confirm." : ""}</small></span></label>; })}
     </div>}
-    {reading.files.map((f) => <div className="al-panel" key={f.name}>
-      <div className="al-panel-head"><h4>{f.name}</h4><span className="al-chip">{ROLE_TEXT[f.role] || f.role}{f.entity ? ` · ${f.entity}` : ""} · {f.rows.toLocaleString()} rows</span></div>
+    {groups.map((g) => <section key={g.file} className="al-stack">
+      {g.tables.length > 1 && <div className="al-group-head"><h3 className="al-h3">{g.file}</h3><p className="al-muted">{g.tables.length} sheets: {g.tables.map((t) => t.sheet).join(", ")}</p></div>}
+      {g.tables.map(({ sheet, f }) => <div className="al-panel" key={f.name}>
+      <div className="al-panel-head"><h4 title={f.name}>{sheet ? <>{sheet} <small className="al-muted">sheet of {g.file}</small></> : f.name}</h4><span className="al-chip">{ROLE_TEXT[f.role] || f.role}{f.entity ? ` · ${f.entity}` : ""} · {f.rows.toLocaleString()} rows</span></div>
       <p className="al-muted">{f.role_reason}</p>
       {f.identities?.length > 0 && <p className="al-muted">Found exact arithmetic between columns: {f.identities.slice(0, 4).join("; ")}.</p>}
       {f.warnings.map((w, i) => <p key={i} className="al-note-warn">{w}</p>)}
-      {f.notes.slice(0, 3).map((n, i) => <p key={i} className="al-muted">{n}</p>)}
+      {f.notes.filter((n) => !(sheet && n.startsWith("Sheet '"))).slice(0, 3).map((n, i) => <p key={i} className="al-muted">{n}</p>)}
       {(f.date_columns || []).length > 1 && <label className="al-field al-inline">Timeline (when things happened)
         <select value={(choices.timeCol || {})[f.name] || f.time_col || ""} onChange={(e) => setTimeCol(f.name, e.target.value)}>
           {!f.time_col && <option value="">(none: these dates describe each row)</option>}
@@ -69,5 +73,22 @@ export default function ReadingReview({ reading, choices, setChoices }) {
               {c.unsure_between && !mine && <div className="al-muted">Could also be: {(reading.concepts.find((x) => x.id === c.unsure_between) || {}).label || c.unsure_between}. Pick the right one.</div>}
               {c.date && <DateLine f={f} c={c} value={((choices.dateOrder || {})[f.name] || {})[c.name]} onChange={(o) => setDateOrder(f.name, c.name, o)}/>}</td></tr>; })}</tbody></table></div>}
     </div>)}
+    </section>)}
   </div>;
+}
+
+const SHEET_SEP = " › ";
+
+/** Tables read from the sheets of one workbook are shown together under the workbook's name. */
+function groupByWorkbook(files) {
+  const out = [];
+  const at = {};
+  for (const f of files) {
+    const i = f.name.indexOf(SHEET_SEP);
+    const file = i >= 0 ? f.name.slice(0, i) : f.name;
+    const sheet = i >= 0 ? f.name.slice(i + SHEET_SEP.length) : null;
+    if (at[file] === undefined) { at[file] = out.length; out.push({ file, tables: [] }); }
+    out[at[file]].tables.push({ sheet, f });
+  }
+  return out;
 }

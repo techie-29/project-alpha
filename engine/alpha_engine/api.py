@@ -84,6 +84,26 @@ def read(req: ReadRequest, x_engine_key: str | None = Header(default=None)):
     return pipeline.read(files, req.confirmations, default_provider() if req.use_ai else None, req.memory)
 
 
+class WarmRequest(BaseModel):
+    files: list[FileSpec]
+
+
+@app.post("/v1/warm", status_code=202)
+def warm(req: WarmRequest, x_engine_key: str | None = Header(default=None)):
+    """Called right after an upload: start reading the files in the background (no AI, nothing saved), so the
+    'how Alpha reads your files' screen opens quickly. Answers at once; failures are ignored here."""
+    _auth(x_engine_key)
+    files = []
+    for f in req.files:
+        try:
+            files.append({"id": f.id, "name": f.name, "path": _safe(f.path)})
+        except HTTPException:
+            continue
+    if files:
+        threading.Thread(target=lambda: pipeline.warm(files), daemon=True, name="alpha-warm").start()
+    return {"accepted": len(files)}
+
+
 @app.post("/v1/analyze", status_code=202)
 def analyze(req: AnalyzeRequest, x_engine_key: str | None = Header(default=None)):
     _auth(x_engine_key)

@@ -4,7 +4,9 @@ from __future__ import annotations
 import datetime as dt
 import gzip
 import json
+import os
 import pickle
+import threading
 import time
 from pathlib import Path
 from .llm import Provider, NullProvider
@@ -23,6 +25,8 @@ from .insights.assemble import assemble, coverage, briefing
 from .report.build import clean
 
 _CACHE: dict = {}
+_LOCKS: dict = {}
+_LOCKS_GUARD = threading.Lock()
 VERSION = 2
 
 
@@ -64,9 +68,19 @@ def _load(spec: dict, confirmations: dict, provider: Provider) -> Prepared:
     path = Path(spec["path"])
     st = path.stat()
     fc = _file_conf(confirmations, spec["name"])
-    key = (str(path), spec.get("sheet"), st.st_mtime_ns, st.st_size, json.dumps(fc, sort_keys=True), provider.name)
-    if key in _CACHE:
-        return _CACHE[key]
+    # the AI's look at unclear columns is kept on the table itself (ai_status), so a table read once (right after upload,
+    # or on the reading screen) is reused by the full analysis whichever AI setting asked for it
+    key = (str(path), spec.get("sheet"), spec["name"], st.st_mtime_ns, st.st_size, json.dumps(fc, sort_keys=True))
+    with _LOCKS_GUARD:
+        lock = _LOCKS.setdefault(key, threading.Lock())
+    with lock:                       # read after upload still running: wait for it and reuse its work instead of reading twice
+        if key in _CACHE:
+            _CACHE[key] = _CACHE.pop(key)                   # most recently used last
+            return _CACHE[key]
+        return _read_table(spec, path, fc, key)
+
+
+def _read_table(spec: dict, path: Path, fc: dict, key: tuple) -> Prepared:
     df, rnotes = read_any(str(path), spec.get("sheet"))
     if spec.get("sheet") is not None:
         rnotes = [f"Sheet '{spec['sheet']}' of {spec.get('workbook') or path.name}."] + rnotes
@@ -78,28 +92,54 @@ def _load(spec: dict, confirmations: dict, provider: Provider) -> Prepared:
     p = prepare(df, spec["name"], fc)
     p.notes = rnotes + p.notes
     p.ai_status = None if p.kind != "summary" else {"status": "skipped"}   # type: ignore[attr-defined]  (asked in _understand)
-    if len(_CACHE) > 8:
-        _CACHE.pop(next(iter(_CACHE)))
     _CACHE[key] = p
+    _trim_cache()
+    if len(_LOCKS) > 400:
+        _LOCKS.clear()
     return p
+
+
+MAX_CACHED_ROWS = int(os.environ.get("ALPHA_CACHE_ROWS", "3000000"))
+
+
+def _trim_cache() -> None:
+    """Keep recently read tables in memory (up to ALPHA_CACHE_ROWS rows in all, default 3 million), so the reading screen
+    and the analysis after it do not read the same workbook twice. The oldest are forgotten first."""
+    while len(_CACHE) > 1 and (len(_CACHE) > 80 or sum(len(p.df) for p in _CACHE.values()) > MAX_CACHED_ROWS):
+        _CACHE.pop(next(iter(_CACHE)))
+
+
+def warm(files: list[dict]) -> int:
+    """Read and prepare uploaded files straight away (no AI, nothing saved), so the reading screen opens quickly.
+    Returns the number of tables prepared; a file that cannot be read is skipped (the reading screen will say why)."""
+    n = 0
+    for spec in expand_files(files):
+        try:
+            _load(spec, {}, NullProvider()); n += 1
+        except Exception:
+            continue
+    return n
 
 
 def _review_all(tables: dict, provider: Provider, progress=None) -> None:
     """The AI's look at unclear columns: one question per table, all asked at the same time instead of one after another
     (each answer only touches its own table)."""
-    todo = [p for p in tables.values() if getattr(p, "ai_status", None) is None]
+    def asked(p) -> bool:
+        st = getattr(p, "ai_status", None)
+        return st is not None and (provider.name == "none" or st.get("provider") == provider.name or st.get("status") in ("nothing to ask", "skipped"))
+    todo = [p for p in tables.values() if not asked(p)]
     if not todo:
         return
     if provider.name == "none" or len(todo) == 1:
         for p in todo:
-            p.ai_status = review_columns(p.df, p.roles, provider)
+            p.ai_status = {**review_columns(p.df, p.roles, provider), "provider": provider.name}
         return
     if progress:
         progress("Asking the AI about unclear columns", 20)
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=min(6, len(todo)), thread_name_prefix="alpha-review") as ex:
         for p, st in zip(todo, ex.map(lambda p: review_columns(p.df, p.roles, provider), todo)):
-            p.ai_status = st
+            p.ai_status = {**st, "provider": provider.name}
 
 
 def _understand(files: list[dict], confirmations: dict, provider: Provider, memory: dict | None, progress=None):

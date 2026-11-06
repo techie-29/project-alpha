@@ -52,6 +52,15 @@ describe("alpha API", () => {
     expect(repo.addFile).toHaveBeenCalledWith(expect.objectContaining({ businessAccountId: 7, originalName: "a.csv" }));
   });
 
+  it("starts reading a new upload in the engine at once, and an engine failure there never fails the upload", async () => {
+    const engine = { warm: vi.fn(async () => { throw new Error("engine down"); }), read: vi.fn(), analyze: vi.fn(), job: vi.fn(), report: vi.fn() };
+    const { app } = build({ engine });
+    const r = await request(app).post("/api/alpha/files").set("x-has-file", "1");
+    expect(r.status).toBe(201);
+    await new Promise((ok) => setTimeout(ok, 0));
+    expect(engine.warm).toHaveBeenCalledWith({ files: [expect.objectContaining({ name: "a.csv", path: "/up/x.csv" })] });
+  });
+
   it("only lets an owner use and delete their own files", async () => {
     const { app, engine, removeFile } = build();
     expect((await request(app).post("/api/alpha/read").send({ fileIds: [2] })).status).toBe(404);
