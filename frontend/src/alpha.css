@@ -106,3 +106,4 @@
 /* charts: the site-wide svg stroke must not outline bars and labels */
 .recharts-surface{stroke:none}.recharts-text,.recharts-label{stroke:none}
 @media (max-width:540px){.al-tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.al-tile{padding:10px}.al-tile-value{font-size:19px}.al-delta{font-size:10.5px}}
+.al-group-head{padding:14px 2px 0;border-top:1px solid var(--line, rgba(127,127,127,.25))}.al-group-head .al-h3{font-size:17px;margin:0}

@@ -107,3 +107,28 @@ def test_unclear_columns_of_several_tables_are_asked_at_the_same_time():
     pipeline._review_all(tables, prov)
     assert all((tb.ai_status or {}).get("status") == "ok" for tb in tables.values())
     assert prov.most >= 2 and time.time() - t < 4 * 0.4 + 1.0
+
+
+def test_upload_warm_reading_screen_and_analysis_read_each_file_once(monkeypatch):
+    from alpha_engine.llm import FakeProvider
+    pipeline._CACHE.clear()
+    tmp = Path(tempfile.mkdtemp())
+    n = 400
+    df = pd.DataFrame({"order_id": [f"O{i:04d}" for i in range(n)], "order_date": pd.date_range("2024-01-01", periods=n).strftime("%Y-%m-%d"),
+                       "Value": R.uniform(10, 500, n).round(2), "Amount": R.uniform(5, 200, n).round(2), "region": R.choice(["N", "S"], n)})
+    p = tmp / "book.xlsx"
+    with pd.ExcelWriter(p) as w:
+        df.to_excel(w, sheet_name="Orders", index=False)
+        df.head(100).to_excel(w, sheet_name="Old", index=False)
+    files = [{"id": 1, "name": "book.xlsx", "path": str(p)}]
+    reads = []
+    real = pipeline.read_any
+    monkeypatch.setattr(pipeline, "read_any", lambda *a, **k: (reads.append(a), real(*a, **k))[1])
+    assert pipeline.warm(files) == 2 and len(reads) == 2                  # right after upload: both sheets read, no AI
+    first, second = FakeProvider({"columns": []}), FakeProvider({"columns": []})
+    first.model = second.model = "same-model"
+    pipeline.read(files, {}, first)                                      # the reading screen
+    pipeline.analyze("w1", files, {}, str(tmp), second)                  # then the analysis
+    assert len(reads) == 2                                               # never read again
+    meanings = lambda prov: [c for c in prov.calls if "allowed_concepts" in c]
+    assert len(meanings(first)) == 1 and meanings(second) == []          # the same question to the AI is asked once

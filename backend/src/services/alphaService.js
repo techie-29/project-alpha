@@ -38,6 +38,10 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
       for (const f of uploaded) {
         out.push(await repository.addFile({ businessAccountId, originalName: f.originalname, storedPath: f.path, sizeBytes: f.size }));
       }
+      // start reading the new files in the engine straight away (no AI, nothing saved), so the reading screen opens fast;
+      // the upload never waits for it and never fails because of it
+      const files = out.map((row, i) => ({ id: row.id, name: row.name, path: uploaded[i].path }));
+      if (files.length && engine.warm) Promise.resolve().then(() => engine.warm({ files })).catch(() => {});
       return out;
     },
     listFiles: (businessAccountId) => repository.listFiles(businessAccountId),
