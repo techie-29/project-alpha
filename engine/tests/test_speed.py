@@ -64,7 +64,8 @@ def test_each_ai_step_asks_for_its_own_thinking_effort(monkeypatch):
     monkeypatch.delenv("AI_REASONING", raising=False)
     p = OpenRouterProvider(api_key="test-key")
     body = lambda purpose: json.loads(p._body("s", "{}", 100, purpose=purpose))
-    assert body("plan")["reasoning"] == {"effort": "low"} and body("write")["reasoning"] == {"effort": "medium"}
+    assert body("plan")["reasoning"] == {"effort": "medium"} and body("write")["reasoning"] == {"effort": "medium"}   # plan writes code here
+    assert "reasoning" not in body("something-else")
     assert body("read-columns")["reasoning"] == {"effort": "low"}
     assert json.loads(p._body("s", "{}", 100, force_low=True, purpose="write"))["reasoning"] == {"effort": "low"}
     monkeypatch.setenv("AI_REASONING", "high")

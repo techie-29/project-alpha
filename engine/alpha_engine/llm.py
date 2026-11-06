@@ -41,8 +41,10 @@ _LOCK = threading.Lock()
 # How hard the model thinks at each step. Most of the AI's time goes into thinking, and picking calculations or checking
 # a column's meaning needs little of it; writing the findings gets more. AI_REASONING in engine/.env overrides all steps
 # (low | medium | high), or 'model' leaves it to the model's own default.
-STEP_EFFORT = {"plan": "low", "dig": "low", "write": "medium", "ask-plan": "low", "ask-answer": "medium",
-               "read-columns": "low", "read-meanings": "low", "check": "low"}
+# In this app the AI writes its own code at 'understand', 'plan', 'dig' and 'fix_setup', so those keep medium thinking:
+# a bug costs a retry, which is slower than the thinking saved. Steps not listed use the model's own default.
+STEP_EFFORT = {"understand": "medium", "fix_setup": "medium", "plan": "medium", "dig": "medium", "write": "medium",
+               "ask-plan": "medium", "ask-answer": "medium", "read-columns": "low", "read-meanings": "low", "check": "low"}
 
 
 class Meter:
@@ -249,7 +251,7 @@ class OpenRouterProvider(Provider):
             return self.reasoning
         if self.reasoning in ("model", "default", "off", "none"):
             return None
-        return STEP_EFFORT.get(purpose, "low")
+        return STEP_EFFORT.get(purpose)
 
     def _body(self, system: str, text_in: str, max_tokens: int, force_low: bool = False, purpose: str = "") -> bytes:
         b = {"model": self.model,
