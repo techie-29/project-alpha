@@ -77,11 +77,29 @@ def _load(spec: dict, confirmations: dict, provider: Provider) -> Prepared:
         rnotes = rnotes + [wide_note]
     p = prepare(df, spec["name"], fc)
     p.notes = rnotes + p.notes
-    p.ai_status = review_columns(p.df, p.roles, provider) if p.kind != "summary" else {"status": "skipped"}   # type: ignore[attr-defined]
+    p.ai_status = None if p.kind != "summary" else {"status": "skipped"}   # type: ignore[attr-defined]  (asked in _understand)
     if len(_CACHE) > 8:
         _CACHE.pop(next(iter(_CACHE)))
     _CACHE[key] = p
     return p
+
+
+def _review_all(tables: dict, provider: Provider, progress=None) -> None:
+    """The AI's look at unclear columns: one question per table, all asked at the same time instead of one after another
+    (each answer only touches its own table)."""
+    todo = [p for p in tables.values() if getattr(p, "ai_status", None) is None]
+    if not todo:
+        return
+    if provider.name == "none" or len(todo) == 1:
+        for p in todo:
+            p.ai_status = review_columns(p.df, p.roles, provider)
+        return
+    if progress:
+        progress("Asking the AI about unclear columns", 20)
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(6, len(todo)), thread_name_prefix="alpha-review") as ex:
+        for p, st in zip(todo, ex.map(lambda p: review_columns(p.df, p.roles, provider), todo)):
+            p.ai_status = st
 
 
 def _understand(files: list[dict], confirmations: dict, provider: Provider, memory: dict | None, progress=None):
@@ -90,6 +108,7 @@ def _understand(files: list[dict], confirmations: dict, provider: Provider, memo
         tables[spec["name"]] = _load(spec, confirmations, provider)
         if progress:
             progress(f"Reading {spec['name']}", 3 + int(17 * (n + 1) / len(files)))
+    _review_all(tables, provider, progress)
     links = apply_link_confirmations(find_links(tables), confirmations.get("links") or {})
     model = build_model(tables, links, confirmations, memory)
     _settle_masters(tables, model)

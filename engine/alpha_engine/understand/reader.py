@@ -79,10 +79,10 @@ def _fix_frame(df: pd.DataFrame, notes: list[str], skipped: int, minimal: bool =
     # text cells: trim; decimal commas; unify casing of category values
     for c in [c for c in df.columns if c != "_row" and (df[c].dtype == object or pd.api.types.is_string_dtype(df[c]))]:
         s = df[c]
-        st = s.dropna().astype(str).str.strip()
+        st = s.dropna().alpha.strip_str()
         if len(st) == 0:
             continue
-        df[c] = s.where(s.isna(), s.astype(str).str.strip()).replace("", pd.NA)
+        df[c] = s.where(s.isna(), s.alpha.strip_str()).replace("", pd.NA)
         sample = st.sample(min(len(st), 2000), random_state=0)
         if sample.str.match(DEC_COMMA).mean() >= 0.8:
             df[c] = df[c].where(df[c].isna(), df[c].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False))
@@ -159,8 +159,33 @@ def _book(path: str) -> dict:
     if key not in _BOOKS:
         if len(_BOOKS) > 4:
             _BOOKS.pop(next(iter(_BOOKS)))
-        _BOOKS[key] = pd.read_excel(path, sheet_name=None, header=None, na_values=NA)
+        _BOOKS[key] = _read_book(path)
     return _BOOKS[key]
+
+
+def _read_book(path: str) -> dict:
+    """Every sheet, cells as they are. The fast Rust reader (python-calamine) when installed: same cells, about 5x
+    quicker on big workbooks. Falls back to the standard reader if it is missing or cannot open the file."""
+    try:
+        return pd.read_excel(path, sheet_name=None, header=None, na_values=NA, engine="calamine")
+    except Exception:                           # not installed, or a file it cannot open: use the standard reader
+        pass
+    return pd.read_excel(path, sheet_name=None, header=None, na_values=NA)
+
+
+_TABLES: dict = {}
+
+
+def _book_tables(path: str) -> dict:
+    """Which sheets hold tables (worked out once per workbook)."""
+    book = _book(path)
+    st = Path(path).stat()
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    if key not in _TABLES:
+        if len(_TABLES) > 4:
+            _TABLES.pop(next(iter(_TABLES)))
+        _TABLES[key] = {str(n): _sheet_table(raw) for n, raw in book.items()}
+    return _TABLES[key]
 
 
 def table_sheets(path: str) -> list[tuple[str, int]]:
@@ -168,20 +193,15 @@ def table_sheets(path: str) -> list[tuple[str, int]]:
     if not str(path).lower().endswith((".xlsx", ".xlsm", ".xls")):
         return []
     try:
-        book = _book(path)
+        found = _book_tables(path)
     except Exception:
         return []
-    out = []
-    for name, raw in book.items():
-        t = _sheet_table(raw)
-        if t:
-            out.append((str(name), t[2]))
-    return out
+    return [(name, t[2]) for name, t in found.items() if t]
 
 
 def _read_excel(path: str, notes: list[str], sheet: str | None = None, minimal: bool = False) -> pd.DataFrame:
     book = _book(path)
-    found = {str(n): _sheet_table(raw) for n, raw in book.items()}
+    found = _book_tables(path)
     tables = {n: t for n, t in found.items() if t}
     if not tables:
         raise ValueError("The workbook has no data.")

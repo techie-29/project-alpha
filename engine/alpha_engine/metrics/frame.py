@@ -75,13 +75,13 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
                     num = cn if cn is not None else num
                 out[canon] = num
             else:
-                out[canon] = vals.astype("string").str.strip()
+                out[canon] = vals.alpha.strip_string()
             F.canon[canon] = c
     # keys of entities that are usually few (warehouses, staff, suppliers) are also groups to compare
     for canon in ("site_id", "employee_id", "supplier_id"):
         c = F.canon.get(canon)
         if c and c in src.columns and 2 <= src[c].nunique(dropna=True) <= 200:
-            out[c] = src[c].astype("string").str.strip()
+            out[c] = src[c].alpha.strip_string()
             F.groups.setdefault(canon, []).append(c)
     used = set(F.canon.values())
     for c, v in concept_cols.items():
@@ -90,7 +90,7 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
             continue
         if con.kind == "group" and v["concept"] not in ("currency",):
             F.groups.setdefault(v["concept"], []).append(c)
-            out[c] = src[c].astype("string").str.strip()
+            out[c] = src[c].alpha.strip_string()
         elif con.kind == "number" and c not in used:
             F.extra_numbers.append((c, "number" if v.get("attribute_of") else v["concept"]))
             if v.get("attribute_of"):
@@ -98,14 +98,14 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
             out[c] = pd.to_numeric(src[c], errors="coerce")
         elif con.kind == "key" and c not in used:
             F.groups.setdefault(v["concept"], []).append(c)
-            out[c] = src[c].astype("string").str.strip()
+            out[c] = src[c].alpha.strip_string()
     cur_col = _primary(concept_cols, "currency")
     if cur_col is not None:
         cv = concept_cols[cur_col]
         if cv.get("constant"):
             out["_cur"] = cv["constant"]
         elif cur_col in src.columns:
-            out["_cur"] = src[cur_col].astype("string").str.strip().str.upper()
+            out["_cur"] = src[cur_col].alpha.strip_string().str.upper()
     _movements(F, src, concept_cols)
     _date_roles(F, src, concept_cols, p, has_time)
     # time unit of the time-taken column, from its header
@@ -134,7 +134,7 @@ def build_frame(p, model_cols: dict, file_info: dict, tables: dict | None = None
         F.item_keys = ["product_id" if F.canon.get("product_id") == k else k for k in F.item_keys]
         for k in F.item_keys:
             if k not in out.columns and k in src.columns:
-                out[k] = src[k].astype("string").str.strip()
+                out[k] = src[k].alpha.strip_string()
     _lookup_parents(F, p, tables or {}, links or [], models or {})
     _derive(F)
     F.status_flags = [(c, v, fc) for c, v, fc in getattr(p, "_rate_cols", []) if fc in src.columns]
@@ -241,7 +241,7 @@ def _movements(F: Frame, src: pd.DataFrame, concept_cols: dict) -> None:
     mcol = _primary(concept_cols, "movement_type")
     if not mcol or "quantity" not in F.df.columns or mcol not in src.columns:
         return
-    t = src[mcol].astype("string").str.strip()
+    t = src[mcol].alpha.strip_string()
     q = F.df["quantity"]
     kind = pd.Series("other", index=src.index)
     kind[t.str.match(MOVE_OUT.pattern, case=False, na=False).astype(bool)] = "out"
@@ -308,8 +308,8 @@ def _lookup_parents(F: Frame, p, tables: dict, links: list, models: dict) -> Non
         if pm.get("file", {}).get("role") != "master":
             continue
         pcols = pm.get("columns", {})
-        key = P.df[l.parent_col].astype("string").str.strip()
-        child_key = p.df[l.child_col].astype("string").str.strip() if l.child_col in p.df.columns else None
+        key = P.df[l.parent_col].alpha.strip_string()
+        child_key = p.df[l.child_col].alpha.strip_string() if l.child_col in p.df.columns else None
         if child_key is None:
             continue
         for canon in ("unit_cost", "unit_price", "stock_level", "reorder_level"):
@@ -331,7 +331,7 @@ def _lookup_parents(F: Frame, p, tables: dict, links: list, models: dict) -> Non
             if con.kind == "group" and c in F.df.columns and c not in sum(F.groups.values(), []):
                 F.groups.setdefault(v["concept"], []).append(c)
             elif con.kind == "group" and c not in F.df.columns and v["concept"] not in ("currency",) and c in P.df.columns:
-                m = pd.Series(P.df[c].astype("string").str.strip().values, index=key.values)
+                m = pd.Series(P.df[c].alpha.strip_string().values, index=key.values)
                 m = m[~m.index.duplicated()]
                 F.df[c] = child_key.map(m).values
                 F.groups.setdefault(v["concept"], []).append(c)

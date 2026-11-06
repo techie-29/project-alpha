@@ -1,6 +1,7 @@
 """Shared pieces for the analysis toolbox: the insight record, shuffle tests, multiple-testing control, wording helpers."""
 from __future__ import annotations
 import hashlib
+import os
 import numpy as np
 import pandas as pd
 from ..scan.stats import bh
@@ -34,6 +35,15 @@ def insight(kind: str, area: str, title: str, detail: str, **kw) -> dict:
     d.update(kw)
     d["claim"] = {"calculated": "Calculated", "supported": "Supported by evidence", "early": "Possible (early sign)"}[d["strength"]]
     return d
+
+
+def shuffle_pool():
+    """Shuffle tests are independent and numpy shuffles without holding Python's lock, so several run at the same time on
+    different processor cores. Each test keeps its own fixed random seed, so the answers are exactly the same as one by one.
+    ALPHA_THREADS=1 turns this off."""
+    from concurrent.futures import ThreadPoolExecutor
+    n = int(os.environ.get("ALPHA_THREADS", "0") or 0) or min(8, os.cpu_count() or 1)
+    return ThreadPoolExecutor(max_workers=max(1, n), thread_name_prefix="alpha-shuffle")
 
 
 def perm_group_test(num: np.ndarray, den: np.ndarray, codes: np.ndarray, k: int, B1: int = 199, B2: int = 1999, rng=None):

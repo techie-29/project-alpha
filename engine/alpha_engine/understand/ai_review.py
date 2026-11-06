@@ -45,7 +45,7 @@ def review_columns(df: pd.DataFrame, roles: dict[str, dict], provider: Provider,
         return {"asked": 0, "status": "nothing to ask"}
     payload = {"all_columns": [c for c in df.columns if c != "_row"], "unsure": [describe_column(df, c, roles[c]) for c in unsure]}
     try:
-        answer = provider.complete_json(SYSTEM, payload)
+        answer = provider.complete_json(SYSTEM, payload, "read-columns")
     except ProviderError as e:
         return {"asked": len(unsure), "status": f"AI unavailable ({e}); columns left for the owner to confirm"}
     cols = answer.get("columns", {}) if isinstance(answer, dict) else {}

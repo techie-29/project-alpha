@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -35,6 +36,15 @@ FATAL_HELP = {401: "The OpenRouter key was refused. Check OPENROUTER_API_KEY in 
               404: "The model name was not found on OpenRouter. Check OPENROUTER_MODEL in engine/.env."}
 
 
+_LOCK = threading.Lock()
+
+# How hard the model thinks at each step. Most of the AI's time goes into thinking, and picking calculations or checking
+# a column's meaning needs little of it; writing the findings gets more. AI_REASONING in engine/.env overrides all steps
+# (low | medium | high), or 'model' leaves it to the model's own default.
+STEP_EFFORT = {"plan": "low", "dig": "low", "write": "medium", "ask-plan": "low", "ask-answer": "medium",
+               "read-columns": "low", "read-meanings": "low", "check": "low"}
+
+
 class Meter:
     """What one analysis spent on the AI: calls, tokens, cost, time, and the limits that stop it."""
 
@@ -54,6 +64,10 @@ class Meter:
             raise BudgetExceeded(f"AI cost limit reached (${self.cost:.3f} of ${self.max_cost:.2f} for this analysis; AI_MAX_COST_USD in engine/.env).")
 
     def add(self, purpose: str, seconds: float, tin: int | None, tout: int | None, cost: float | None, error: str | None = None) -> None:
+        with _LOCK:                                   # calls may finish at the same time (several asked at once)
+            self._add(purpose, seconds, tin, tout, cost, error)
+
+    def _add(self, purpose, seconds, tin, tout, cost, error) -> None:
         self.calls += 1
         self.failed += 1 if error else 0
         self.tokens_in += int(tin or 0); self.tokens_out += int(tout or 0)
@@ -155,10 +169,11 @@ class GeminiProvider(Provider):
         }).encode()
         last = "unknown error"
         for attempt in range(4):
-            wait = GeminiProvider._last_call + self.min_interval - time.time()
-            if wait > 0:
-                time.sleep(wait)
-            GeminiProvider._last_call = time.time()
+            with _LOCK:
+                start = max(time.time(), GeminiProvider._last_call + self.min_interval)
+                GeminiProvider._last_call = start
+            if start > time.time():
+                time.sleep(start - time.time())
             req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", "x-goog-api-key": self.key})
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:
@@ -212,29 +227,37 @@ class GeminiProvider(Provider):
 class OpenRouterProvider(Provider):
     """OpenRouter (OpenAI-style chat API). Reaches DeepSeek and many other models with one key.
     Env: OPENROUTER_API_KEY, OPENROUTER_MODEL (default deepseek/deepseek-chat), AI_MAX_TOKENS (default 8192),
-    AI_REASONING (low | medium | high, optional), AI_MAX_CALLS and AI_MAX_COST_USD (limits per analysis)."""
+    AI_REASONING (low | medium | high | model; default: per step, see STEP_EFFORT), AI_TIMEOUT (seconds), AI_MAX_CALLS and AI_MAX_COST_USD (limits per analysis)."""
     name = "openrouter"
     _last_call = 0.0
 
-    def __init__(self, api_key: str | None = None, model: str | None = None, timeout: int = 180):
+    def __init__(self, api_key: str | None = None, model: str | None = None, timeout: int | None = None):
         super().__init__()
         self.key = (api_key or os.environ.get("OPENROUTER_API_KEY", "")).strip()
         self.model = (model or os.environ.get("OPENROUTER_MODEL", "deepseek/deepseek-chat")).strip()
-        self.timeout = timeout
+        # long enough for a slow answer to arrive: a call cut off at the limit is asked again from the start, which
+        # doubles the wait instead of saving it
+        self.timeout = timeout or int(os.environ.get("AI_TIMEOUT", "300"))
         self.min_interval = float(os.environ.get("AI_MIN_INTERVAL", "1.0"))
         self.max_tokens = int(os.environ.get("AI_MAX_TOKENS", "8192"))
         self.reasoning = os.environ.get("AI_REASONING", "").strip().lower()
         if not self.key:
             raise ProviderError("OPENROUTER_API_KEY is not set.")
 
-    def _body(self, system: str, text_in: str, max_tokens: int, force_low: bool = False) -> bytes:
+    def effort(self, purpose: str = "") -> str | None:
+        if self.reasoning in ("low", "medium", "high"):
+            return self.reasoning
+        if self.reasoning in ("model", "default", "off", "none"):
+            return None
+        return STEP_EFFORT.get(purpose, "low")
+
+    def _body(self, system: str, text_in: str, max_tokens: int, force_low: bool = False, purpose: str = "") -> bytes:
         b = {"model": self.model,
              "messages": [{"role": "system", "content": system + "\nReply with one JSON object only."}, {"role": "user", "content": text_in}],
              "temperature": 0.2, "max_tokens": max_tokens, "response_format": {"type": "json_object"}, "usage": {"include": True}}
-        if force_low:
-            b["reasoning"] = {"effort": "low"}                     # the model ran out of room while thinking: think less
-        elif self.reasoning in ("low", "medium", "high"):
-            b["reasoning"] = {"effort": self.reasoning}
+        e = "low" if force_low else self.effort(purpose)      # force_low: the model ran out of room while thinking
+        if e:
+            b["reasoning"] = {"effort": e}
         return json.dumps(b).encode()
 
     def complete_json(self, system: str, payload: dict, purpose: str = "") -> dict:
@@ -250,11 +273,12 @@ class OpenRouterProvider(Provider):
         force_low = False
         last, t0 = "unknown error", time.time()
         for attempt in range(4):
-            wait = OpenRouterProvider._last_call + self.min_interval - time.time()
-            if wait > 0:
-                time.sleep(wait)
-            OpenRouterProvider._last_call = time.time()
-            req = urllib.request.Request(url, data=self._body(system, text_in, max_tokens, force_low), headers={
+            with _LOCK:                                # calls asked at once still start at least min_interval apart
+                start = max(time.time(), OpenRouterProvider._last_call + self.min_interval)
+                OpenRouterProvider._last_call = start
+            if start > time.time():
+                time.sleep(start - time.time())
+            req = urllib.request.Request(url, data=self._body(system, text_in, max_tokens, force_low, purpose), headers={
                 "Content-Type": "application/json", "Authorization": f"Bearer {self.key}", "X-Title": "Project Alpha"})
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:

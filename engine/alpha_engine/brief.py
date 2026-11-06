@@ -29,7 +29,7 @@ def personal(col: str, s: pd.Series) -> bool:
 
 
 def _safe_values(s: pd.Series, k: int = 8) -> list[str]:
-    v = s.dropna().astype(str).str.strip()
+    v = s.dropna().alpha.strip_str()
     if v.nunique() > 60:
         return []
     return [x for x in v.value_counts().index[:k] if SAFE_VALUE.match(x)]

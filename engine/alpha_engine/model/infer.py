@@ -114,7 +114,7 @@ def num_stats(s: pd.Series) -> dict | None:
 
 
 def cat_stats(s: pd.Series) -> dict:
-    v = s.dropna().astype(str).str.strip()
+    v = s.dropna().alpha.strip_str()
     vc = v.value_counts()
     top = list(vc.index[:60])
     return {"nu": int(v.nunique()), "n": int(len(v)), "vals": top, "len": float(v.str.len().mean()) if len(v) else 0.0}
@@ -827,7 +827,7 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
                         v["reasons"] = [f"same value on every row of the same {ent}: a {ent} detail, averaged rather than added up"] + v["reasons"][:2]
     for c, i in roles.items():                     # a constant currency column still says which currency the money is in
         if i["role"] == "constant" and c not in cols:
-            v = df[c].dropna().astype(str).str.strip().str.upper()
+            v = df[c].dropna().alpha.strip_str().str.upper()
             if len(v) and v.iloc[0] in CURRENCIES:
                 cols[c] = {"concept": "currency", "label": "Currency", "confidence": 0.95, "reasons": [f"every row is in {v.iloc[0]}"], "alternatives": [], "source": "auto", "constant": v.iloc[0]}
     for c in usable:                                   # what the owner chose before for a column with the same name

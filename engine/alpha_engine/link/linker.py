@@ -52,7 +52,7 @@ def _name_score(a: str, b: str) -> float:
 
 
 def _keys(df: pd.DataFrame, col: str) -> pd.Series:
-    return df[col].dropna().astype(str).str.strip()
+    return df[col].dropna().alpha.strip_str()
 
 
 ID_WORDS = {"id", "code", "no", "number", "num", "key", "ref", "name"}
@@ -76,6 +76,21 @@ def _key_like(col: str, info: dict) -> bool:
 def find_links(tables: dict[str, Prepared]) -> list[Link]:
     out: list[Link] = []
     names = list(tables)
+    memo: dict = {}
+
+    def keys(t: str, col: str):
+        """(trimmed keys, distinct count, distinct set): worked out once per column, not once per pair of files."""
+        if (t, col) not in memo:
+            k = _keys(tables[t].df, col)
+            memo[(t, col)] = (k, k.nunique(), None)
+        return memo[(t, col)]
+
+    def key_set(t: str, col: str) -> set:
+        k, n, ks = keys(t, col)
+        if ks is None:
+            ks = set(k)
+            memo[(t, col)] = (k, n, ks)
+        return ks
     for i, a in enumerate(names):
         for b in names[i + 1:]:
             A, B = tables[a], tables[b]
@@ -98,8 +113,7 @@ def find_links(tables: dict[str, Prepared]) -> list[Link]:
                         by_values = True
                     if ia["role"] == "category" and ns < 1.0 and not by_values:
                         continue
-                    ka, kb = _keys(A.df, ca), _keys(B.df, cb)
-                    ua, ub = ka.nunique(), kb.nunique()
+                    (ka, ua, _), (kb, ub, _) = keys(a, ca), keys(b, cb)
                     a_unique, b_unique = ua == len(ka), ub == len(kb)
                     if not (a_unique or b_unique):
                         continue
@@ -109,12 +123,12 @@ def find_links(tables: dict[str, Prepared]) -> list[Link]:
                     else:
                         parent_is_a = a_unique
                     (pn, pc, pk), (cn, cc, ck) = ((a, ca, ka), (b, cb, kb)) if parent_is_a else ((b, cb, kb), (a, ca, ka))
-                    cov = float(ck.drop_duplicates().isin(set(pk)).mean())
+                    cov = float(ck.drop_duplicates().isin(key_set(pn, pc)).mean())
                     if cov < 0.5 or (by_values and (cov < 0.95 or not id_header(pc) or pk.str.fullmatch(ID_VALUE).mean() < 0.8)):
                         continue
                     if by_values:
                         ns = max(ns, 0.7)
-                    size = 1.0 if pk.nunique() >= 100 else 0.5
+                    size = 1.0 if (ua if parent_is_a else ub) >= 100 else 0.5
                     numeric_small = pk.str.fullmatch(r"\d{1,4}").mean() > 0.9
                     conf = 0.5 * cov + 0.3 * ns + 0.2 * size
                     reasons = [f"{cov:.0%} of keys in {cn}.{cc} exist in {pn}.{pc}", f"{pn}.{pc} has unique keys"]
@@ -162,12 +176,12 @@ def _enrich(name: str, tables: dict[str, Prepared], links: list[Link], trail: tu
     for L in [l for l in links if l.use and l.child == name and l.parent not in trail]:
         P = tables[L.parent]
         pdf = _enrich(L.parent, tables, links, trail + (name,), notes, warns)
-        pk = pdf[L.parent_col].astype(str).str.strip()
+        pk = pdf[L.parent_col].alpha.strip_str()
         dup = int(pk.duplicated().sum())
         if dup:
             warns.append(f"{L.parent}.{L.parent_col} has {dup:,} repeated key(s); the first record was used so rows are never multiplied.")
         lookup = pdf.assign(_k=pk).drop_duplicates("_k").set_index("_k")
-        ck = df[L.child_col].astype(str).str.strip()
+        ck = df[L.child_col].alpha.strip_str()
         miss = float(1 - ck.isin(lookup.index).mean())
         if miss > 0.05:
             warns.append(f"{miss:.0%} of {name} rows have no matching record in {L.parent}; their {L.parent} details are blank.")
