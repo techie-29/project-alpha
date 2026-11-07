@@ -7,7 +7,7 @@ function Delta({ c, fmt, polarity, label }) {
   if (!text) return null;
   const up = c > 0, flat = Math.abs(c) < 1e-9;
   const good = polarity ? (polarity > 0) === up : null;
-  const color = flat || good === null ? "#c3c2b7" : good ? GOOD : BAD;
+  const color = flat || good === null ? "#6b7480" : good ? GOOD : BAD;
   return <span className="al-delta" style={{ color }}><b aria-hidden="true">{flat ? "•" : up ? "▲" : "▼"}</b> {text} <i>{label}</i>{good !== null && !flat && <span className="al-sr">{good ? " (better)" : " (worse)"}</span>}</span>;
 }
 

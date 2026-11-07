@@ -100,7 +100,7 @@ export function SummaryTab({ report, view, go }) {
       {view.f.understanding && <p className="al-lead">{view.f.understanding}</p>}
       {view.f.error && <p className="al-note-warn">{view.f.error}</p>}
     </section>
-    {figures.length > 0 && <section><h3 className="al-h3">Key figures</h3><div className="al-tiles">{figures.map((t) => <div key={t.metric}><Tile t={t}/>{t.note && <p className="al-muted">{t.note}</p>}</div>)}</div></section>}
+    {figures.length > 0 && <section><h3 className="al-h3">Key figures</h3>{(() => { const notes = [...new Set(figures.map((t) => t.note).filter(Boolean))]; return notes.length > 0 && <p className="al-muted">{notes.join(" ")}</p>; })()}<div className="al-tiles">{figures.map((t) => <div key={t.metric}><Tile t={t}/></div>)}</div></section>}
     <HealthBar h={health} onOpen={() => go("data")}/>
     {cards.length > 0 && <section><div className="ar-sec-head"><h3 className="al-h3">What matters most</h3><button type="button" className="al-mini" onClick={() => go("findings")}>All {cards.length} findings →</button></div>
       <div className="ar-top">{cards.slice(0, 3).map((c) => <FindingCard key={c.id} card={c} currency={currency} big/>)}</div></section>}

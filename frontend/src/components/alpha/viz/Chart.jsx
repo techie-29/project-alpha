@@ -39,7 +39,7 @@ function TimeLine({ spec, compactView }) {
         <YAxis tick={tick} width={56} tickFormatter={axisFmt(fmt)} tickLine={false} axisLine={false}/>
         <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [fmtValue(v, fmt, spec.unit), n]} cursor={{ stroke: AXIS, strokeWidth: 1 }}/>
         {fr && data[fr[0]] && <ReferenceArea x1={data[fr[0]].x} x2={data[Math.min(fr[1], data.length - 1)].x} fill={EMPHASIS} fillOpacity={0.12} stroke="none"/>}
-        {g.series.map((s, i) => <Line key={s.name} type="monotone" dataKey={s.name} stroke={SERIES[i % SERIES.length]} strokeWidth={2} dot={false} activeDot={{ r: 4, stroke: "#0e1319", strokeWidth: 2 }} connectNulls/>)}
+        {g.series.map((s, i) => <Line key={s.name} type="monotone" dataKey={s.name} stroke={SERIES[i % SERIES.length]} strokeWidth={2} dot={false} activeDot={{ r: 4, stroke: "#ffffff", strokeWidth: 2 }} connectNulls/>)}
         {g.series.length > 1 && <Legend wrapperStyle={{ fontSize: 12, color: INK2 }}/>}
       </LineChart>
     </ResponsiveContainer>
@@ -62,7 +62,7 @@ function Bars({ spec, compactView }) {
             <CartesianGrid stroke={GRID} horizontal={false}/>
             <XAxis type="number" tick={tick} tickFormatter={axisFmt(fmt)} axisLine={false} tickLine={false} domain={[(d) => Math.min(0, d), "auto"]}/>
             <YAxis type="category" dataKey="group" tick={{ ...tick, fill: INK2 }} width={130} tickLine={false} axisLine={{ stroke: GRID }}/>
-            <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtValue(v, fmt, spec.unit), spec.metric_label || "Value"]} cursor={{ fill: "#ffffff08" }}/>
+            <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtValue(v, fmt, spec.unit), spec.metric_label || "Value"]} cursor={{ fill: "#0000000a" }}/>
             <Bar dataKey="value" maxBarSize={20} radius={[0, 4, 4, 0]} label={{ position: "right", fill: INK2, fontSize: 11, formatter: (v) => fmtValue(v, fmt) }}>
               {data.map((r) => <Cell key={r.group} fill={focus ? (r.group === focus ? EMPHASIS : DEEMPH) : (r.other ? DEEMPH : EMPHASIS)}/>)}
             </Bar>
@@ -71,7 +71,7 @@ function Bars({ spec, compactView }) {
             <CartesianGrid stroke={GRID} vertical={false}/>
             <XAxis dataKey="group" tick={tick} tickLine={false} axisLine={{ stroke: GRID }} interval={data.length > 14 ? "preserveStartEnd" : 0} minTickGap={4}/>
             <YAxis tick={tick} width={52} tickFormatter={axisFmt(fmt)} tickLine={false} axisLine={false}/>
-            <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtValue(v, fmt, spec.unit), "Value"]} cursor={{ fill: "#ffffff08" }}/>
+            <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtValue(v, fmt, spec.unit), "Value"]} cursor={{ fill: "#0000000a" }}/>
             <Bar dataKey="value" maxBarSize={24} radius={[4, 4, 0, 0]}>
               {data.map((r) => <Cell key={r.group} fill={focus ? (r.group === focus ? EMPHASIS : DEEMPH) : EMPHASIS}/>)}
             </Bar>
@@ -92,9 +92,9 @@ function Stacked({ spec, counts }) {
             <CartesianGrid stroke={GRID} vertical={false}/>
             <XAxis dataKey="x" tick={tick} minTickGap={40} tickLine={false} axisLine={{ stroke: GRID }}/>
             <YAxis tick={tick} width={52} tickFormatter={axisFmt("count")} tickLine={false} axisLine={false}/>
-            <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [fmtValue(v, "count"), n]} cursor={{ fill: "#ffffff08" }}/>
+            <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [fmtValue(v, "count"), n]} cursor={{ fill: "#0000000a" }}/>
             <Legend wrapperStyle={{ fontSize: 12, color: INK2 }}/>
-            {series.map((s, i) => <Bar key={s.name} dataKey={s.name} stackId="a" fill={SERIES[i]} stroke="#0e1319" strokeWidth={1}/>)}
+            {series.map((s, i) => <Bar key={s.name} dataKey={s.name} stackId="a" fill={SERIES[i]} stroke="#ffffff" strokeWidth={1}/>)}
           </BarChart>
         : <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke={GRID} vertical={false}/>
