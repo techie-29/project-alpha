@@ -37,6 +37,28 @@ def material_problem(i: dict) -> bool:
     return (i.get("impact_share") or 0) >= 0.1 or (n.get("rows_share") or 0) >= 0.05
 
 
+_NEXT_STEP = (
+    ("return", "Check quality, packing and the carrier or supplier behind these orders, and read the return reasons."),
+    ("cancel", "Look at stock-outs, delivery promises and payment failures for these orders."),
+    ("refund", "Read the refund reasons and check the price, quality and what customers were told."),
+    ("delay", "Check the carrier, warehouse and the delivery time you promise customers."),
+    ("deliver", "Check the carrier, warehouse and the delivery time you promise customers."),
+    ("rating", "Read the low-rated orders and fix the most repeated complaint first."),
+    ("order value", "Check discounts and campaigns used here, and try bundles or a minimum for free delivery."),
+    ("discount", "Check who can give discounts here and whether the discount really lifts sales."),
+    ("margin", "Review prices, discounts and costs here."),
+    ("profit", "Review prices, discounts and costs here."),
+    ("revenue", "Compare prices, stock and promotion effort with the groups doing well."),
+    ("sales", "Compare prices, stock and promotion effort with the groups doing well."),
+)
+
+
+def _worse_for(ml: str, v, col: str, n: dict) -> str:
+    """A concrete next step for a group that does worse than the rest, chosen by what is being measured."""
+    step = next((t for k, t in _NEXT_STEP if k in ml), "Open the rows behind it and look for a shared reason (product, supplier, process, staff).")
+    return f"{ml.capitalize()} is worse for {v} ({col}). {step}"
+
+
 def suggestion(i: dict) -> str | None:
     if i.get("suggestion"):
         return i["suggestion"]
@@ -47,7 +69,7 @@ def suggestion(i: dict) -> str | None:
         if i["polarity"] == "bad":
             if i.get("metric") == "margin":
                 return f"Review prices, discounts and costs for {v} ({col}); its margin is well below the rest."
-            return f"Find out why {ml} is worse for {v} ({col}). Open the rows behind it and look for a shared reason (product, supplier, process, staff)."
+            return _worse_for(ml, v, col, n)
         if i["polarity"] == "good":
             return f"Learn from {v} ({col}): what it does differently may work elsewhere."
         return f"Keep an eye on {v} ({col}); it behaves differently from the rest."

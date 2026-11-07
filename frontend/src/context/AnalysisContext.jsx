@@ -83,6 +83,6 @@ export function healthOf(report) {
 export function alertsOf(report, view) {
   const out = [];
   for (const f of report?.data_check?.files || []) for (const c of f.checks || []) if (c.status === "fail" || c.status === "warn") out.push({ kind: "data", level: c.status, title: c.title, detail: c.detail, file: f.file });
-  for (const c of view?.cards || []) if (c.tone === "risk") out.push({ kind: "finding", level: "warn", title: c.headline, detail: c.why_it_matters || "", area: c.area, id: c.id });
+  for (const c of view?.cards || []) if (c.tone === "risk") out.push({ kind: "finding", level: "warn", title: c.headline, detail: c.why_it_matters || "", area: c.area, id: c.id, insight: c.insight_id, fix: c.look_into || "" });
   return out;
 }
