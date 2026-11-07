@@ -19,7 +19,7 @@ export default function Tile({ t }) {
     {t.last_period && <Delta c={t.last_period.change} fmt={t.fmt} polarity={t.polarity} label={`${t.last_period.label} vs ${t.last_period.previous_label}`}/>}
     {t.vs_last_year && <Delta c={t.vs_last_year.change} fmt={t.fmt} polarity={t.polarity} label={`vs ${t.vs_last_year.label}`}/>}
     {spark.length > 2 && <div className="al-spark" aria-hidden="true"><ResponsiveContainer><AreaChart data={spark} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-      <Area type="monotone" dataKey="v" stroke="#3987e5" strokeWidth={1.5} fill="#3987e5" fillOpacity={0.1} dot={false} isAnimationActive={false} connectNulls/>
+      <Area type="monotone" dataKey="v" stroke="#2a6f97" strokeWidth={1.5} fill="#2a6f97" fillOpacity={0.1} dot={false} isAnimationActive={false} connectNulls/>
     </AreaChart></ResponsiveContainer></div>}
 
   </div>;

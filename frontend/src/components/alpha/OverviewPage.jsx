@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Chart from "./viz/Chart";
-import Tile from "./viz/Tile";
 import { allSections, allTiles } from "./AreaPage";
 import { change, fmtValue } from "../../utils/alphaFormat";
 import { healthOf } from "../../context/AnalysisContext";
@@ -31,6 +30,18 @@ function snapshot(tiles, risks, strengths, view, health) {
   const title = risks.length ? `${risks.length} thing${risks.length === 1 ? "" : "s"} need${risks.length === 1 ? "s" : ""} your attention.` : strengths.length ? "Nothing urgent. A few things are going well." : "Nothing urgent to report.";
   const tail = `Alpha found ${risks.length} risk${risks.length === 1 ? "" : "s"} and ${strengths.length} strength${strengths.length === 1 ? "" : "s"}.${health != null ? ` Data health is ${health}.` : ""}`;
   return { title, text: `${lead} ${tail}` };
+}
+
+function HeroFigure({ t }) {
+  const lp = t.last_period, c = lp?.change;
+  const text = Number.isFinite(c) ? change(c, t.fmt) : null;
+  const up = c > 0, flat = Math.abs(c) < 1e-9;
+  const good = t.polarity ? (t.polarity > 0) === up : null;
+  return <div className="ov-fig" title={t.how}>
+    <span>{t.label}</span>
+    <strong>{fmtValue(t.value, t.fmt, t.unit)}</strong>
+    {text && <small className={flat || good === null ? "" : good ? "up" : "down"}>{flat ? "•" : up ? "▲" : "▼"} {text}</small>}
+  </div>;
 }
 
 function Money({ m, currency }) {
@@ -96,17 +107,22 @@ export default function OverviewPage({ id, report, view }) {
   const tot = rows ? Math.max(1, (rows.ok || 0) + (rows.fixed || 0) + (rows.flagged || 0) + (rows.left_out || 0)) : 1;
 
   return <div className="ov">
-    <section className="ov-snap"><div><h2>{snap.title}</h2><p>{snap.text}</p></div>
-      {health != null && <Link to={`/analysis/${id}/quality`} className="ov-score"><b>{health}</b><span>Data health</span></Link>}</section>
+    <section className="ov-hero">
+      <div className="ov-hero-top">
+        <div><h2>{snap.title}</h2><p>{snap.text}</p></div>
+        {health != null && <Link to={`/analysis/${id}/quality`} className="ov-ring" aria-label={`Data health ${health} out of 100. Open Data Quality`}>
+          <svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="19" className="ov-ring-bg"/><circle cx="22" cy="22" r="19" className="ov-ring-fg" strokeDasharray={`${(health / 100) * 119.4} 119.4`} transform="rotate(-90 22 22)"/></svg>
+          <b>{health}</b><span>data health</span></Link>}
+      </div>
+      {keyTiles.length > 0 && <div className="ov-figs">{keyTiles.map((t) => <HeroFigure key={`${t.metric}-${t.source}`} t={t}/>)}</div>}
+    </section>
+    {notes.length > 0 && <p className="ov-note">{notes.join(" ")} More numbers on the Sales and Customers pages.</p>}
 
     <form className="ov-ask" onSubmit={(e) => { e.preventDefault(); if (q.trim().length >= 3) navigate(`/analysis/${id}/ask?q=${encodeURIComponent(q.trim())}`); }}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12Z"/></svg>
       <input value={q} maxLength={500} onChange={(e) => setQ(e.target.value)} aria-label="Ask your data" placeholder="Ask your data, for example: which region sells the most?"/>
       <button type="submit" className="primary-button" disabled={q.trim().length < 3}>Ask</button>
       {!aiOn && <small>The AI helper is off, so answers will not work until an AI key is set.</small>}</form>
-
-    {keyTiles.length > 0 && <section><div className="al-tiles ov-tiles">{keyTiles.map((t) => <Tile key={`${t.metric}-${t.source}`} t={t}/>)}</div>
-      {notes.length > 0 && <p className="ov-note">{notes.join(" ")} More numbers on the Sales and Customers pages.</p>}</section>}
 
     <div className="ov-one">
       <section className="ov-card"><div className="ov-card-head"><h3>Do this first</h3><Link to={`/analysis/${id}/suggestions`}>All suggestions →</Link></div>
