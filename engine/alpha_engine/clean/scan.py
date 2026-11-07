@@ -327,6 +327,18 @@ def run(df: pd.DataFrame, name: str, notes: list[str] | None = None, hints: dict
                                    if not (cid == "suggest" and not any(i.get("suggest") is not None and i["suggest"].notna().any() for i in its))
                                    and not (cid == "fill" and not any(i.get("textual") for i in its))],
                        "cells": cells, "columns": sorted({i["column"] for i in its if i["column"]}), "rows": sorted(grows)})
+    reported: dict[str, set] = {}
+    for it in found.items:                               # every cell already reported under its own problem (whatever the owner chose for it)
+        if it["column"] and it["type"] != "missing":
+            idx = np.flatnonzero(it["mask"])
+            if len(idx):
+                reported.setdefault(it["column"], set()).update(int(r) for r in rows_no[idx])
+    blanked: dict[str, list[int]] = {}                  # cells this step emptied (by the owner's choice), so later checks do not count them again as missing
+    for col, m in blank_cells:
+        if not col.endswith("\u0000fill"):
+            was = work[col].notna().to_numpy() & m
+            if was.any():
+                blanked.setdefault(col, []).extend(int(r) for r in rows_no[was])
     for col, m in blank_cells:
         if col.endswith("\u0000fill"):
             work.loc[m, col.split("\u0000")[0]] = "Unknown"
@@ -377,5 +389,6 @@ def run(df: pd.DataFrame, name: str, notes: list[str] | None = None, hints: dict
                     "rows_before": n, "rows_after": int(len(work)), "removed": removed, "health": health_now},
         "preview": {"columns": cols, "rows": prow, "shown": len(prow), "total": n},
         "flagged_rows": sorted(flagged_rows)[:5000],
+        "blanked": {c: sorted(set(v) | reported.get(c, set())) for c, v in list(blanked.items()) + [(c, []) for c in reported if c not in blanked]},
     }
     return work, report

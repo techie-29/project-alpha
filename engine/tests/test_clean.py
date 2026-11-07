@@ -38,3 +38,26 @@ def test_owner_choice_changes_the_result(tmp_path):
     rep = _quality(tmp_path, fixes={"*": {"impossible_value": "remove"}})
     assert rep["summary"]["rows_after"] < 11
     assert next(g for g in rep["groups"] if g["type"] == "impossible_value")["choice"] == "remove"
+
+
+def test_cleaned_cells_are_not_counted_again_as_missing(tmp_path):
+    """3 bad ages and 2 bad dates are reported under their own problem; only the 1 age and 1 city really left empty are 'missing'."""
+    path = tmp_path / "corrupted_customers.xlsx"
+    pd.DataFrame(ROWS, columns=COLS).to_excel(path, index=False)
+    for conf in ({}, {"fixes": {"*": {"invalid_date": "keep", "impossible_value": "keep", "not_a_number": "keep"}}}):
+        r = pipeline.analyze("t", [{"name": "c.xlsx", "path": str(path)}], conf, str(tmp_path))
+        found = []
+
+        def walk(o):
+            if isinstance(o, dict):
+                if o.get("id") == "missing_values" and "status" in o:
+                    found.append(o["detail"])
+                for v in o.values():
+                    walk(v)
+            elif isinstance(o, list):
+                for v in o:
+                    walk(v)
+        walk(r)
+        text = " ".join(found)
+        assert "'age' is empty on 9.1% of rows (1)" in text
+        assert "signup_date" not in text

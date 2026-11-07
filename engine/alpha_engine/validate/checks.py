@@ -197,10 +197,17 @@ def _missing(R: _Run, p, concept_of: dict):
     d = R.df
     cols = [c for c in d.columns if not str(c).startswith("_") and c in p.roles and p.roles[c].get("role") not in ("empty", "constant")]
     worst, parts = None, []
+    # cells the cleaning step emptied are already reported under their real problem (bad age, impossible date...): never count them again as missing
+    names = getattr(p, "original_names", {}) or {}
+    blanked = (getattr(p, "cleaning", None) or {}).get("blanked") or {}
+    rows = d["_row"] if "_row" in d.columns else None
     for c in cols:
         miss = d[c].isna()
         if p.roles[c].get("role") == "measure" and not pd.api.types.is_numeric_dtype(d[c]):
             miss = miss | _num(d[c]).isna()
+        cleared = blanked.get(names.get(c, c)) or []
+        if cleared and rows is not None:
+            miss = miss & ~rows.isin(cleared)
         share = float(miss.mean())
         key = concept_of.get(c) in ("revenue", "profit", "quantity", "order_id", "product_id", "customer_id", "cost") or c == p.time_col
         if share >= 0.01 or (key and miss.any()):
