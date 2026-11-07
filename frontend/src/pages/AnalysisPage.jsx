@@ -7,13 +7,11 @@ import RunProgress from "../components/alpha/RunProgress";
 import OverviewPage from "../components/alpha/OverviewPage";
 import WhatIfPage from "../components/alpha/WhatIfPage";
 import ExplorerPage from "../components/alpha/ExplorerPage";
+import HoodPage from "../components/alpha/HoodPage";
 import AlertsPage from "../components/alpha/AlertsPage";
 
 const SECTIONS = new Set(["overview", "mapping", "quality", "explorer", "sales", "customers", "products", "trends", "suggestions", "alerts", "whatif", "ask", "hood"]);
 const OLD_TAB = { summary: "overview", findings: "suggestions", explore: "explorer", data: "quality", ask: "ask", reading: "mapping" };
-const SOON = {
-  hood: ["Under the Hood", "Everything Alpha did with your files, step by step. Coming in this build."],
-};
 
 export default function AnalysisPage() {
   const { id, section = "overview" } = useParams();
@@ -47,7 +45,7 @@ export default function AnalysisPage() {
   else if (section === "suggestions") body = <><Head title="Suggestions" intro="What Alpha found, ranked by importance and the money involved."/><FindingsTab view={view}/></>;
   else if (section === "alerts") body = <><Head title="Alerts" intro="Everything that needs your attention, most serious first."/><AlertsPage id={id} report={report} view={view}/></>;
   else if (section === "whatif") body = <><Head title="What-If" intro="Try a change and see what it would do to revenue and profit."/><WhatIfPage report={report}/></>;
+  else if (section === "hood") body = <><Head title="Under the Hood" intro="Everything Alpha did with your files, step by step."/><HoodPage id={id} report={report}/></>;
   else if (section === "ask") body = <><Head title="Ask Your Data" intro="Ask a question in plain words. Alpha answers from your rows only."/><AskTab analysisId={id} token={token} aiOn={report.ai?.provider && report.ai.provider !== "none"} initial={params.get("q") || undefined}/></>;
-  else body = <><Head title={SOON[section][0]}/><div className="al-panel al-empty-page"><p>{SOON[section][1]}</p></div></>;
   return <div className="page-content al-report pg-anim" key={section}>{body}</div>;
 }
