@@ -7,9 +7,6 @@ import { change, fmtValue } from "../../utils/alphaFormat";
 import { healthOf } from "../../context/AnalysisContext";
 
 const KEY = ["revenue", "profit", "orders", "customers", "margin"];
-const TARGET_KEY = "alphaRevenueTarget";
-const readTarget = () => { try { return Number(localStorage.getItem(TARGET_KEY)) || 0; } catch { return 0; } };
-const saveTarget = (v) => { try { if (v > 0) localStorage.setItem(TARGET_KEY, String(v)); else localStorage.removeItem(TARGET_KEY); } catch { /* storage blocked: the target just is not remembered */ } };
 
 function tileBy(tiles, metric) { return tiles.find((t) => t.metric === metric); }
 
@@ -54,29 +51,6 @@ function Ranked({ title, rows, fmt, unit, note }) {
   const max = Math.max(...rows.map((r) => r.value), 1);
   return <div className="ov-rank"><h4>{title}</h4>{note && <small>{note}</small>}
     <ol>{rows.map((r) => <li key={r.label}><span>{r.label}</span><b>{fmtValue(r.value, fmt, unit)}</b><i style={{ width: `${Math.max(3, (100 * r.value) / max)}%` }}/></li>)}</ol></div>;
-}
-
-function Target({ tile, currency }) {
-  const [target, setTarget] = useState(readTarget);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const lp = tile?.last_period;
-  if (!lp) return null;
-  const pct = target > 0 ? (lp.value / target) * 100 : 0;
-  const state = pct >= 100 ? ["Target met", "ok"] : pct >= 90 ? ["Close to target", "ok"] : ["Behind target", "bad"];
-  const save = (e) => { e.preventDefault(); const v = Number(String(draft).replace(/[^\d.]/g, "")); setTarget(v > 0 ? v : 0); saveTarget(v); setEditing(false); };
-  return <section className="ov-card"><div className="ov-card-head"><h3>Monthly revenue target</h3>
-    {target > 0 && !editing && <button type="button" className="al-link-button" onClick={() => { setDraft(String(target)); setEditing(true); }}>Change</button>}</div>
-    {target > 0 && !editing ? <>
-      <div className="ov-target"><strong>{fmtValue(lp.value, "money", currency)}</strong><span>of {fmtValue(target, "money", currency)} in {lp.label}</span><em className={`ov-state ${state[1]}`}>{state[0]}</em></div>
-      <div className="ov-bar" role="progressbar" aria-valuenow={Math.min(100, Math.round(pct))} aria-valuemin={0} aria-valuemax={100}><i className={state[1]} style={{ width: `${Math.min(100, pct)}%` }}/></div>
-      <small className="al-muted">{Math.round(pct)}% of target. {pct >= 100 ? `${fmtValue(lp.value - target, "money", currency)} above it.` : `${fmtValue(target - lp.value, "money", currency)} short.`} Saved in this browser.</small></>
-    : <form className="ov-target-form" onSubmit={save}>
-        <p className="al-muted">{editing ? "Set the revenue you want each month." : `Set a goal and Alpha shows how ${lp.label} compares.`}</p>
-        <div><input inputMode="numeric" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={`e.g. ${Math.round(lp.value * 1.05 / 1000) * 1000}`} aria-label="Monthly revenue target"/>
-          <button type="submit" className="primary-button" disabled={!String(draft).trim()}>Save target</button>
-          {editing && <button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancel</button>}</div></form>}
-  </section>;
 }
 
 export default function OverviewPage({ id, report, view }) {
@@ -134,12 +108,11 @@ export default function OverviewPage({ id, report, view }) {
     {keyTiles.length > 0 && <section><div className="al-tiles ov-tiles">{keyTiles.map((t) => <Tile key={`${t.metric}-${t.source}`} t={t}/>)}</div>
       {notes.length > 0 && <p className="ov-note">{notes.join(" ")} More numbers on the Sales and Customers pages.</p>}</section>}
 
-    <div className="ov-two">
+    <div className="ov-one">
       <section className="ov-card"><div className="ov-card-head"><h3>Do this first</h3><Link to={`/analysis/${id}/suggestions`}>All suggestions →</Link></div>
         {actions.length > 0 ? <ol className="ov-actions">{actions.map((a, i) => <li key={a.insight_id}><i>{i + 1}</i><div><Link to={`/analysis/${id}/suggestions#${a.insight_id}`}>{a.title}</Link><small>{a.action}</small></div>
           {a.impact ? <b className="ov-money">{fmtValue(Math.abs(a.impact), "money", currency)}</b> : null}</li>)}</ol>
           : <p className="al-muted">Nothing needs doing first. No finding passed the checks as a problem to fix.</p>}</section>
-      <Target tile={tileBy(tiles, "revenue")} currency={currency}/>
     </div>
 
     <div className="ov-two">
