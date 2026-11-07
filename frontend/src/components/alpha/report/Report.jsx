@@ -57,7 +57,7 @@ function How({ card }) {
 export function FindingCard({ card, currency, big }) {
   const [label, cls] = TONE[card.tone] || TONE.neutral;
   const spec = chartSpec(card);
-  return <article className={`ar-card ${cls} ${big ? "ar-card-big" : ""}`}>
+  return <article id={card.id} className={`ar-card ${cls} ${big ? "ar-card-big" : ""}`}>
     <header className="ar-card-head">
       <div className="ar-chips"><span className={`ar-tone ${cls}`}>{label}</span><span className="ar-sure">{STRENGTH[card.strength] || card.strength}</span>
         {card.area && card.area !== "general" && <span className="ar-area">{card.area}</span>}{card.source === "engine" && <span className="ar-area" title="Found by the engine's own scan, checked the same way">engine</span>}</div>
@@ -224,7 +224,7 @@ function Answer({ r }) {
   </div>;
 }
 
-export function AskTab({ analysisId, token, aiOn }) {
+export function AskTab({ analysisId, token, aiOn, initial }) {
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [items, setItems] = useState([]);
@@ -240,6 +240,8 @@ export function AskTab({ analysisId, token, aiOn }) {
     try { const result = await askAlpha(analysisId, question, token); setItems((x) => [...x, { question, result }]); setQ(""); }
     catch (x) { setErr(x.message); } finally { setBusy(false); }
   }
+  const asked = useRef(false);
+  useEffect(() => { if (initial && aiOn && !asked.current) { asked.current = true; submit(null, initial); } }, [initial, aiOn]); // eslint-disable-line react-hooks/exhaustive-deps
   const examples = ["How is the business doing on profit?", "Which products or groups lose money?", "What changed most compared with last year?", "Where is money tied up or leaking?"];
   return <div className="al-stack al-ask-page">
     {!aiOn && <div className="al-panel al-caveat">The AI helper is off (no AI key in engine/.env), so Ask Alpha cannot answer yet.</div>}

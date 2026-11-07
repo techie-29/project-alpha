@@ -11,12 +11,12 @@ export const AREA_PAGES = {
 const WIDE = new Set(["line", "stacked", "stacked_count", "table"]);
 
 /** Every overview section, also when unlinked files were summarised as separate parts. */
-function allSections(ov) {
+export function allSections(ov) {
   if (!ov) return [];
   if (ov.parts) return ov.parts.flatMap((p) => (p.overview.sections || []).map((s) => ({ ...s, part: p.name })));
   return ov.sections || [];
 }
-function allTiles(ov) {
+export function allTiles(ov) {
   if (!ov) return [];
   if (ov.parts) return ov.parts.flatMap((p) => p.overview.tiles || []);
   return ov.tiles || [];
