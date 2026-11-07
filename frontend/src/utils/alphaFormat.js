@@ -53,10 +53,30 @@ export const TYPE_LABELS = { measure: "Number", category: "Group", id: "Identifi
 export const ROLE_TEXT = { transactions: "Activity log", lines: "Line items", master: "Master list", snapshot: "Snapshot over time", periodic: "Period totals", reference: "Reference table", summary: "Summary (not analysed)" };
 export const CLAIM_CLASS = { Calculated: "calc", "Supported by evidence": "supported", "Possible (early sign)": "early" };
 
-export function buildConfirmations({ concepts = {}, links = {}, types = {}, rowOrder = {}, dateOrder = {}, timeCol = {} }) {
+export function buildConfirmations({ concepts = {}, links = {}, types = {}, rowOrder = {}, dateOrder = {}, timeCol = {}, modes = {}, rename = {}, fixes = {}, mapped = {} }) {
   const out = { concepts, links, columns: types, rows_in_time_order: rowOrder };
   if (Object.keys(dateOrder).length) out.date_order = dateOrder;     // { file: { column: "day-first" | "month-first" } }
   if (Object.keys(timeCol).length) out.time_col = timeCol;           // { file: column used as the timeline }
+  const keep = Object.fromEntries(Object.entries(modes).filter(([, m]) => m === "keep").map(([k]) => [k, true]));
+  if (Object.keys(keep).length) out.keep = keep;                     // { "file::column": true }: a plain column, no special business meaning
+  const names = Object.fromEntries(Object.entries(rename).filter(([k, v]) => modes[k] === "custom" && String(v || "").trim()).map(([k, v]) => [k, String(v).trim()]));
+  if (Object.keys(names).length) out.rename = names;                 // { "file::column": "New name" }
+  if (Object.keys(fixes).length) out.fixes = fixes;                  // { file: { problemKind: choice } }
+  if (Object.keys(mapped).length) out.mapped = mapped;               // { "file::column": concept } as shown on the mapping screen
+  return out;
+}
+
+/** What each column was read as, as shown to the owner (their change wins), keyed "file::original column". 'Keep it' means a plain column. */
+export function mappedConcepts(reading, { concepts = {}, modes = {} } = {}) {
+  const out = {};
+  for (const f of reading?.files || []) {
+    for (const c of f.columns || []) {
+      const key = `${f.name}::${c.original || c.name}`;
+      const keep = modes[key] === "keep";
+      const concept = keep ? (c.type === "measure" ? "number" : c.type === "category" || c.type === "flag" ? "group" : null) : (concepts[key] || c.concept);
+      if (concept) out[key] = concept;
+    }
+  }
   return out;
 }
 

@@ -90,7 +90,7 @@ CONCEPTS: dict[str, Concept] = {c.id: c for c in [
     _c("entity_id", "Identifier", "key", synonyms=(), area="general", entity="record"),
     _c("site_id", "Store / site", "key", synonyms=("store name", "branch name", "outlet name", "restaurant", "restaurant name", "kitchen", "counter", "till", "magasin", "boutique", "tienda", "filiale", "sucursal", "store id", "store", "branch", "outlet", "shop", "warehouse", "location id", "site", "depot", "plant", "clinic", "hub"), area="operations", entity="site"),
     # ---- groups ----
-    _c("location", "Location", "group", synonyms=("region", "city", "state", "country", "zone", "area", "territory", "district", "province", "market", "location", "geo", "postal code", "zip", "zip code", "pincode", "pin code"), area="general"),
+    _c("location", "Location", "group", synonyms=("region", "city", "town", "village", "locality", "suburb", "county", "borough", "state", "country", "zone", "area", "territory", "district", "province", "market", "location", "geo", "postal code", "zip", "zip code", "pincode", "pin code"), area="general"),
     _c("channel", "Channel", "group", synonyms=("channel", "source", "medium", "platform", "sales channel", "marketing channel", "order source", "lead source", "utm source"), area="sales"),
     _c("status", "Status / outcome", "group", synonyms=("status", "order status", "outcome", "result", "stage", "delivery status", "payment status", "return status", "state of order"), area="operations"),
     _c("payment_method", "Payment method", "group", synonyms=("payment method", "payment mode", "payment type", "tender", "pay mode"), area="sales"),
@@ -101,7 +101,12 @@ CONCEPTS: dict[str, Concept] = {c.id: c for c in [
     _c("sentiment", "Sentiment", "group", synonyms=("sentiment", "review sentiment", "mood", "tone"), area="service"),
     _c("yes_no", "Yes / no", "group", synonyms=("is", "has", "flag", "repeat"), area="general"),
     _c("name_label", "Name", "group", synonyms=("product name", "item name", "campaign name", "service name", "title", "name", "description", "desc", "item description", "product description", "item"), area="general"),
-    _c("gender", "Gender", "group", synonyms=("gender", "sex"), area="customers"),
+    _c("gender", "Gender", "group", synonyms=("gender", "sex", "gender identity", "male female"), area="customers"),
+    # catch-all profile / context categories: a header that names none of the business concepts above can still be used as a way to split results
+    _c("demographic", "Customer profile", "group", synonyms=("marital status", "marital", "married", "religion", "education", "qualification", "degree", "occupation", "profession", "job", "nationality", "ethnicity", "race", "language", "mother tongue", "income bracket", "income group", "income level", "blood group", "caste", "category of person", "student type", "household", "family size", "life stage", "age group", "age band", "age bracket", "generation"), area="customers"),
+    _c("priority_level", "Priority / level", "group", synonyms=("priority", "severity", "urgency", "risk", "risk level", "grade", "rank class", "criticality", "importance", "impact", "rating band", "level"), area="operations"),
+    _c("team_role", "Team / role", "group", synonyms=("team", "division", "business unit", "function", "designation", "role", "job title", "position", "grade level", "cadre", "shift", "section", "unit"), area="people"),
+    _c("period_label", "Period", "group", synonyms=("month", "quarter", "fiscal year", "financial year", "fy", "week", "weekday", "day of week", "season", "semester", "term", "period", "year", "month name"), area="general"),
     _c("currency", "Currency", "group", synonyms=("currency", "currency code", "curr", "ccy"), area="general"),
     _c("movement_type", "Stock movement type", "group", synonyms=("movement", "movement type", "transaction type", "txn type", "type of movement", "in out", "voucher type",
        "entry type", "doc type", "stock movement", "move type"), area="stock"),
@@ -119,8 +124,9 @@ CONCEPTS: dict[str, Concept] = {c.id: c for c in [
     _c("end_date", "End / exit date", "date", synonyms=("end date", "exit date", "leaving date", "termination date", "last working day", "relieving date", "end on",
        "ends on", "valid to", "closing date", "churn date", "cancellation date", "left on", "resigned on"), area="general"),
     _c("signup_date", "Start date", "date", synonyms=("joining date", "date joined", "doj", "enrolment date", "enrollment date", "signup date", "join date", "joined", "registration date", "first purchase", "start date", "created at", "member since", "opened", "opening date", "open date", "launch date", "launched", "launched on", "go live date", "valid from", "effective from"), area="customers"),
+    _c("birth_date", "Date of birth", "date", synonyms=("dob", "date of birth", "birth date", "birthdate", "birthday", "born on", "born"), area="customers"),
     # ---- not for analysis ----
-    _c("personal", "Personal detail", "text", synonyms=("customer name", "email", "phone", "mobile", "address", "street", "contact", "full name", "first name", "last name", "client name", "patient name", "employee name"), area="general"),
+    _c("personal", "Personal detail", "text", synonyms=("customer name", "email", "phone", "mobile", "address", "street", "contact", "full name", "first name", "last name", "client name", "patient name", "employee name", "fax", "fax number", "telephone", "landline", "whatsapp", "website", "url", "linkedin", "twitter", "instagram", "social media", "aadhaar", "passport", "ssn", "national id", "tax id", "pan number", "driving licence"), area="general"),
     _c("free_text", "Free text", "text", synonyms=("review", "comment", "notes", "remarks", "feedback text", "message", "long description"), area="general"),
 ]}
 
@@ -145,5 +151,5 @@ SENTIMENT_WORDS = re.compile(r"^(very )?(positive|negative|neutral|mixed|happy|u
 YES_NO_VALUES = {"yes", "no", "y", "n", "true", "false", "1", "0", "t", "f"}
 ID_HEAD = re.compile(r"(^|[_\s\-])(id|code|no|num|number|key|ref|sku|uid|uuid)($|[_\s\-])|[a-z]Id$|^sku$|^upc$|^ean$|barcode", re.I)
 PERSON_NAME = re.compile(r"^(name|full_?name|first_?name|last_?name|(customer|client|patient|user|member|contact|employee|owner|buyer|person)[_\s]?name)$", re.I)
-ALWAYS_PII = re.compile(r"(e_?mail|phone|mobile|address|street|ssn|aadhaar|passport|dob|birth)", re.I)
+ALWAYS_PII = re.compile(r"(e_?mail|phone|mobile|address|street|ssn|aadhaar|passport|fax|whatsapp)", re.I)
 ID_VALUE = re.compile(r"^[A-Za-z]{1,8}[-_ /]?\d{2,}$|^\d{4,}$|^[A-Z0-9]{2,8}(?:[-_/][A-Z0-9]{2,8})+$")   # INV0012, 40031, STR-MUM, WH-ONL

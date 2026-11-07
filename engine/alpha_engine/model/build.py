@@ -7,9 +7,18 @@ from .concepts import CONCEPTS
 def build_model(tables: dict, links: list, confirmations: dict | None = None, memory: dict | None = None) -> dict:
     confirmations = confirmations or {}
     owner: dict[str, dict] = {}
+
+    def current(f: str, col: str) -> str:                      # a renamed column is known by its new name from here on
+        p = tables.get(f)
+        back = {o: n for n, o in (getattr(p, "original_names", {}) or {}).items()}
+        return back.get(col, col)
+    for k, v in (confirmations.get("keep") or {}).items():
+        f, _, col = k.partition("::")
+        if v:
+            owner.setdefault(f, {})[current(f, col)] = "__keep__"      # the owner wants it kept as a plain number / group / text column
     for k, v in (confirmations.get("concepts") or {}).items():
         f, _, col = k.partition("::")
-        owner.setdefault(f, {})[col] = v
+        owner.setdefault(f, {})[current(f, col)] = v
     models = {name: (infer_table(p, memory, owner.get(name)) if p.kind != 'summary' else {'columns': {}, 'file': {'role': 'summary', 'entity': None, 'reason': 'a few summary rows'}, 'identities': []}) for name, p in tables.items()}
     unify_links(models, links)
     for name, p in tables.items():

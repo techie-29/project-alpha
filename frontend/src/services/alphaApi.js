@@ -23,6 +23,7 @@ async function request(path, token, { method = "GET", body } = {}) {
 export const listFiles = (token) => request("/files", token).then((r) => r.files);
 export const deleteFile = (id, token) => request(`/files/${id}`, token, { method: "DELETE" });
 export const readFiles = (fileIds, confirmations, token) => request("/read", token, { method: "POST", body: { fileIds, confirmations } }).then((r) => r.reading);
+export const checkQuality = (fileIds, confirmations, token) => request("/quality", token, { method: "POST", body: { fileIds, confirmations } }).then((r) => r.quality);
 export const startAnalysis = (fileIds, confirmations, token) => request("/analyses", token, { method: "POST", body: { fileIds, confirmations } }).then((r) => r.id);
 export const listAnalyses = (token) => request("/analyses", token).then((r) => r.analyses);
 export const getAnalysis = (id, token) => request(`/analyses/${id}`, token).then((r) => r.analysis);

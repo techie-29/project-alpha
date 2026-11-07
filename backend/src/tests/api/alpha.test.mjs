@@ -72,6 +72,17 @@ describe("alpha API", () => {
     expect(removeFile).toHaveBeenCalledWith("/up/a.csv");
   });
 
+  it("asks the engine for the data-quality screen with the owner's choices, only for the owner's own files", async () => {
+    const engine = { read: vi.fn(), quality: vi.fn(async () => ({ files: [], totals: { issues: 0 } })), analyze: vi.fn(), job: vi.fn(), report: vi.fn() };
+    const { app } = build({ engine });
+    expect((await request(app).post("/api/alpha/quality").send({ fileIds: [2] })).status).toBe(404);
+    const confirmations = { fixes: { "*": { invalid_date: "remove" } }, rename: { "a.csv::amt": "Amount" } };
+    const r = await request(app).post("/api/alpha/quality").send({ fileIds: [1], confirmations });
+    expect(r.status).toBe(200);
+    expect(r.body.quality.totals.issues).toBe(0);
+    expect(engine.quality).toHaveBeenCalledWith(expect.objectContaining({ files: [{ id: 1, name: "a.csv", path: "/up/a.csv" }], confirmations }));
+  });
+
   it("starts an analysis, follows progress, stores the finished report", async () => {
     const { app, repo, engine } = build();
     const start = await request(app).post("/api/alpha/analyses").send({ fileIds: [1], confirmations: { links: {} } });

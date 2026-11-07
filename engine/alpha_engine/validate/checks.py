@@ -1,4 +1,4 @@
-"""Data validation for any business file: 26 checks in 7 groups, a status for every row, and a reconciliation of what
+"""Data validation for any business file: 27 checks in 7 groups, a status for every row, and a reconciliation of what
 came in against what is counted.
 
 Principles
@@ -33,6 +33,7 @@ CHECKS = [
     ("text_in_numbers", "Format and type", "Text or symbols inside number columns"),
     ("unreadable_dates", "Format and type", "Dates that cannot be read"),
     ("dates_out_of_range", "Format and type", "Dates in the future or implausibly old"),
+    ("cell_values", "Format and type", "Impossible, invalid or extreme cell values"),
     ("group_variants", "Format and type", "Different spellings of the same group"),
     ("mixed_scales", "Format and type", "Percentages written two ways (0.05 and 5)"),
     ("profit_above_sale", "Business rules", "Profit larger than the sale"),
@@ -151,6 +152,31 @@ def _from_notes(R: _Run, notes: list[str]) -> dict:
     case = re.findall(r"'([^']+)': values that differ only in capitals", joined)
     out["case_merged"] = case
     return out
+
+
+# what cell-level cleaning found -> the check it belongs to
+_CLEAN_TO_CHECK = {"not_a_number": "text_in_numbers", "invalid_date": "unreadable_dates", "negative_value": "negative_values",
+                   "impossible_value": "cell_values", "invalid_email": "cell_values", "outlier": "cell_values"}
+
+
+def _cleaning(R: _Run, p) -> int:
+    """Report what cell-level cleaning found and what the owner chose for it. Returns the rows it removed (they are 'left out')."""
+    rep = getattr(p, "cleaning", None) or {}
+    for g in rep.get("groups", []):
+        cid = _CLEAN_TO_CHECK.get(g["type"])
+        if not cid:
+            continue
+        pick = next((c["label"] for c in g["choices"] if c["id"] == g["choice"]), g["choice"]).lower()
+        ex = ", ".join(f"'{c['value']}' (row {c['row']})" for c in g["cells"][:3] if c.get("value") is not None)
+        detail = f"{g['title']}: {g['count']:,} cell(s) in {', '.join(g['columns'])}" + (f", for example {ex}" if ex else "") + f". Your choice: {pick}."
+        mask = R.df["_row"].isin(g.get("rows", [])) if "_row" in R.df.columns else None
+        if mask is not None and mask.any():
+            R.put(cid, "warn", detail, mask=mask, cols=g["columns"])
+        else:
+            R.put(cid, "warn", detail, n=g["count"])
+    if "cell_values" not in R.results:
+        R.put("cell_values", "pass", "No impossible, invalid or extreme cell values found.", n=0)
+    return int((rep.get("summary") or {}).get("removed", 0))
 
 
 def _structure(R: _Run, p):
@@ -664,7 +690,9 @@ def validate(tables: dict, frames: dict, model: dict, links: list | None = None)
             money = _num(d[rc])
         cur = getattr(F, "currency", None) if F is not None else None
         R = _Run(name, d, money, cur)
-        info = _from_notes(R, p.notes)
+        auto_dups = sum(a["count"] for a in (getattr(p, "cleaning", None) or {}).get("auto", []) if a["id"] == "duplicate_rows")
+        info = _from_notes(R, p.notes + ([f"Removed {auto_dups} row(s) that were exact copies of another row"] if auto_dups else []))
+        removed_by_cleaning = _cleaning(R, p) - auto_dups          # repeated rows are already counted as 'left out' by the line above
         _structure(R, p)
         _missing(R, p, concept_of)
         _time(R, p)
@@ -693,9 +721,11 @@ def validate(tables: dict, frames: dict, model: dict, links: list | None = None)
         if F is not None and same_rows:
             F.df["_status"] = status.to_numpy()
             F.df["_checks"] = R.flag.to_numpy()
-        dropped = info["dropped_duplicates"] + info["dropped_totals"]
+        dropped = info["dropped_duplicates"] + info["dropped_totals"] + removed_by_cleaning
         counts = status.value_counts().to_dict()
         why_out = []
+        if removed_by_cleaning:
+            why_out.append(f"{removed_by_cleaning:,} row(s) removed by data cleaning (repeated rows or rows you chose to remove)")
         if (~ok).any():
             why_out.append(f"{int((~ok).sum()):,} cancelled / returned / failed rows (kept in the file, not counted as sales)")
         if info["dropped_totals"]:

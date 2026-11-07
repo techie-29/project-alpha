@@ -29,11 +29,13 @@ function DateLine({ c, value, onChange }) {
 
 export default function ReadingReview({ reading, choices, setChoices }) {
   const setConcept = (key, cid) => setChoices((c) => { const concepts = { ...c.concepts }; if (cid) concepts[key] = cid; else delete concepts[key]; return { ...c, concepts }; });
+  const setMode = (key, mode) => setChoices((c) => ({ ...c, modes: { ...(c.modes || {}), [key]: mode === "read" ? undefined : mode } }));
+  const setName = (key, name) => setChoices((c) => ({ ...c, rename: { ...(c.rename || {}), [key]: name } }));
   const setLink = (key, use) => setChoices((c) => ({ ...c, links: { ...c.links, [key]: use } }));
   const setOrder = (name, on) => setChoices((c) => ({ ...c, rowOrder: { ...c.rowOrder, [name]: on } }));
   const setDateOrder = (file, col, order) => setChoices((c) => ({ ...c, dateOrder: { ...(c.dateOrder || {}), [file]: { ...((c.dateOrder || {})[file] || {}), [col]: order } } }));
   const setTimeCol = (file, col) => setChoices((c) => ({ ...c, timeCol: { ...(c.timeCol || {}), [file]: col } }));
-  const unsure = useMemo(() => reading.files.reduce((n, f) => n + f.columns.filter((c) => c.needs_confirmation && !choices.concepts[`${f.name}::${c.name}`]).length, 0), [reading, choices]);
+  const unsure = useMemo(() => reading.files.reduce((n, f) => n + f.columns.filter((c) => c.needs_confirmation && !choices.concepts[`${f.name}::${c.original || c.name}`] && !(choices.modes || {})[`${f.name}::${c.original || c.name}`]).length, 0), [reading, choices]);
   const pending = reading.links.filter((l) => l.needs_confirmation && choices.links[l.key] === undefined);
   const groups = useMemo(() => groupByWorkbook(reading.files), [reading]);
   return <div className="al-stack">
@@ -63,14 +65,22 @@ export default function ReadingReview({ reading, choices, setChoices }) {
           {f.date_columns.map((d) => <option key={d} value={d}>{d}</option>)}
         </select></label>}
       {f.kind === "periodic" && !f.time_col && <label className="al-link"><input type="checkbox" checked={!!choices.rowOrder[f.name]} onChange={(e) => setOrder(f.name, e.target.checked)}/><span>No dates, but rows are in time order<small>Tick only if you are sure.</small></span></label>}
-      {f.role !== "summary" && <div className="al-table-wrap"><table className="al-table al-compact"><thead><tr><th>Column</th><th>Means</th><th>Confidence</th><th>Why</th></tr></thead>
-        <tbody>{f.columns.filter((c) => c.type !== "empty").map((c) => { const key = `${f.name}::${c.name}`; const mine = choices.concepts[key];
-          return <tr key={c.name} className={c.needs_confirmation && !mine ? "al-unsure" : ""}>
-            <td><code>{c.name}</code></td>
-            <td><ConceptSelect col={c} concepts={reading.concepts} value={mine} onChange={(v) => setConcept(key, v)}/>{mine && <span className="al-chip al-chip-mine">your choice</span>}</td>
-            <td>{c.confidence != null ? `${Math.round(c.confidence * 100)}%` : "—"}{c.needs_confirmation && !mine && <span className="al-chip al-chip-warn">please check</span>}</td>
+      {f.role !== "summary" && <div className="al-table-wrap al-map-wrap"><table className="al-table al-compact"><thead><tr><th>Column</th><th>Means</th><th>Confidence</th><th>Why</th></tr></thead>
+        <tbody>{f.columns.filter((c) => c.type !== "empty").map((c) => { const key = `${f.name}::${c.original || c.name}`; const mine = choices.concepts[key]; const mode = (choices.modes || {})[key] || "read";
+          return <tr key={key} className={c.needs_confirmation && !mine && mode === "read" ? "al-unsure" : ""}>
+            <td><code>{c.original || c.name}</code></td>
+            <td><div className="al-map-cell">
+              <select className="al-mode" value={mode} onChange={(e) => setMode(key, e.target.value)} aria-label={`How to treat ${c.name}`}>
+                <option value="read">Use Alpha's reading</option><option value="keep">Keep it as it is</option><option value="custom">Add custom name</option>
+              </select>
+              {mode === "read" && <ConceptSelect col={c} concepts={reading.concepts} value={mine} onChange={(v) => setConcept(key, v)}/>}
+              {mode === "custom" && <input className="al-name" type="text" maxLength={60} placeholder="Your name for this column" value={(choices.rename || {})[key] ?? ""} onChange={(e) => setName(key, e.target.value)} aria-label={`Custom name for ${c.name}`}/>}
+              {mode === "keep" && <span className="al-chip">kept as a plain column</span>}
+              {mode === "read" && mine && <span className="al-chip al-chip-mine">your choice</span>}
+            </div></td>
+            <td>{mode !== "read" ? "—" : c.confidence != null ? `${Math.round(c.confidence * 100)}%` : "—"}{c.needs_confirmation && !mine && mode === "read" && <span className="al-chip al-chip-warn">please check</span>}</td>
             <td className="al-why">{c.source === "memory" ? "You chose this before. " : c.source === "ai" ? "AI helper. " : ""}{(c.reasons || []).slice(0, 2).join("; ")}
-              {c.unsure_between && !mine && <div className="al-muted">Could also be: {(reading.concepts.find((x) => x.id === c.unsure_between) || {}).label || c.unsure_between}. Pick the right one.</div>}
+              {c.unsure_between && !mine && mode === "read" && <div className="al-muted">Could also be: {(reading.concepts.find((x) => x.id === c.unsure_between) || {}).label || c.unsure_between}. Pick the right one.</div>}
               {c.date && <DateLine f={f} c={c} value={((choices.dateOrder || {})[f.name] || {})[c.name]} onChange={(o) => setDateOrder(f.name, c.name, o)}/>}</td></tr>; })}</tbody></table></div>}
     </div>)}
     </section>)}

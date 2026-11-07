@@ -55,6 +55,12 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
       const memory = await repository.listMemory(businessAccountId);
       return engine.read({ files, confirmations: confirmations || {}, use_ai: true, memory });
     },
+    /** The data-quality screen: what cleaning found cell by cell, what it fixed by itself, what the owner can decide. */
+    async quality(businessAccountId, { fileIds, confirmations }) {
+      const files = await filesFor(businessAccountId, fileIds);
+      const memory = await repository.listMemory(businessAccountId);
+      return engine.quality({ files, confirmations: confirmations || {}, use_ai: false, memory });
+    },
     async start(businessAccountId, { fileIds, confirmations }) {
       const files = await filesFor(businessAccountId, fileIds);
       const id = crypto.randomUUID();

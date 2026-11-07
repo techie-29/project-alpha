@@ -22,6 +22,23 @@ FEW_ENTITY_KEYS = {"site_id", "employee_id", "supplier_id"}
 LOCATION_TOKEN = re.compile(r"(^|_|\s)(city|state|country|region|zone|district|province|postal|zip|pincode|pin_code|territory)($|_|\s|code)", re.I)     # entities that are often few (6 warehouses, 12 staff)
 
 
+PII_WORDS = {"fax", "landline", "whatsapp", "linkedin", "website", "email", "mail", "phone", "telephone", "tel", "address", "aadhaar", "aadhar", "passport", "ssn", "pan"}
+NAME_OF_PERSON = re.compile(r"^(full|first|last|middle|sur|given|family)[_\s-]?name$|^(customer|client|patient|user|member|contact|employee|owner|buyer|person|student|guest|passenger)[_\s-]?name$", re.I)
+
+
+def personal_header(col: str) -> bool:
+    """The header itself says it holds a person's details (name, e-mail, phone, address, date of birth). A bare 'name' is not
+    enough: it may be a product."""
+    t = set(tokens(col))
+    if t & {"share", "pct", "percent", "rate", "count", "orders", "sales", "revenue", "amount", "total", "verified", "status", "opt", "optin", "subscribed", "consent", "valid", "bounced", "flag"}:
+        return False
+    if NAME_OF_PERSON.match(str(col).strip()) or re.search(r"e-?_?mail", str(col), re.I):
+        return True
+    if t & PII_WORDS and t != {"mail"}:
+        return True
+    return bool(t & {"mobile"} and t & {"no", "number", "phone", "customer", "client", "contact", "owner", "user", "employee", "member"} or t == {"mobile"} or t == {"contact"} or t & {"contact"} and t & {"number", "no", "phone"})
+
+
 def is_pii(col: str) -> bool:
     return bool(PERSON_NAME.search(col) or ALWAYS_PII.search(col))
 W_NAME, W_VALUE = 0.5, 0.5
@@ -58,7 +75,7 @@ def _eq(t: str, u: str) -> bool:
         return True
     if min(len(t), len(u)) >= 3 and (t in (u + "s", u + "es") or u in (t + "s", t + "es")):
         return True
-    if len(u) >= 3 and t.startswith(u) and len(t) - len(u) >= 2 and len(u) >= 0.4 * len(t):
+    if len(u) >= 4 and t.startswith(u) and len(t) - len(u) >= 2 and len(u) >= 0.4 * len(t):      # 'cust' ~ 'customer', but 'age' is not 'agent'
         return True
     if len(t) >= 4 and u.startswith(t) and 1 <= len(u) - len(t) <= 3 and u[len(t):] in ("s", "es", "ed", "d", "ing"):
         return True
@@ -128,6 +145,7 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
             return 0.0, None
         pos = st["neg"] <= 0.02
         if cid in ("revenue", "gross_revenue", "cost", "expense", "money_other", "unit_price", "unit_cost", "competitor_price", "price_level", "refund", "stock_value"):
+            pos = st["neg"] <= 0.1                    # a stray negative (a refund, a typing slip) does not turn an amount into something else
             if not pos and cid != "money_other":
                 return 0.15, "has negative values"
             sc = 0.45 + (0.3 if st["dec2"] >= 0.4 else 0.15 if st["med"] >= 20 else 0.0)
@@ -137,7 +155,7 @@ def value_score(cid: str, st: dict | None, cs: dict | None) -> tuple[float, str 
                 return 0.1, "all values are below 1: a share, not an amount"
             return (0.55 if pos else 0.1), ("non-negative amounts, often zero" if st["zero"] > 0.2 else "non-negative amounts")
         if cid == "profit":
-            return (0.75 if 0.005 < st["neg"] < 0.6 else 0.45), ("can be negative, like profit" if st["neg"] > 0.005 else "amounts")
+            return (0.75 if 0.1 <= st["neg"] < 0.6 else 0.45), ("can be negative, like profit" if st["neg"] > 0.005 else "amounts")
         if cid == "quantity":
             if st["int"] < 0.97:
                 return 0.05, "not whole numbers"
@@ -596,6 +614,19 @@ def _header_rules(df, cols: dict, nst: dict, cst: dict) -> None:
         t = set(tokens(c))
         st = nst.get(c)
         con = v["concept"]
+        if personal_header(c) and con != "personal":
+            _set(v, "personal", "the header says this is a person's detail (name, e-mail, phone, address or birth date)", 0.9)
+            continue
+        bare_name = t == {"name"} and c in df.columns and df[c].nunique() >= 0.6 * max(1, df[c].notna().sum())      # a bare 'Name' of mostly different values: people
+        if con == "personal" and not personal_header(c) and not bare_name and v.get("source") == "auto":
+            # 'Mobile Orders', 'Email Opt In', a bare 'Name' of products: the header does not say a person's detail. Take the best other reading.
+            vals = df[c].dropna().astype(str).str.strip().str.lower() if c in df.columns else None
+            yn = vals is not None and len(vals) > 0 and vals.isin(YES_NO_VALUES).mean() >= 0.95
+            nums = bool(st) or (vals is not None and len(vals) > 0 and pd.to_numeric(vals, errors="coerce").notna().mean() >= 0.95)
+            alt = "number" if nums else "yes_no" if yn else "name_label" if "name" in t else "group"
+            _set(v, alt, "the header does not name a person's detail, so it is not treated as personal data", 0.6)
+            v["confidence"] = 0.6
+            con = v["concept"]
         if st:
             last = tokens(c)[-1] if tokens(c) else ""
             unit_end = last in UNIT_TOKENS and not (t & {c.lower() for c in CURRENCIES})
@@ -848,9 +879,13 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
             code = max(set(found), key=found.count)
             cols["__currency__"] = {"concept": "currency", "label": "Currency", "confidence": 0.8, "reasons": [f"amounts are written in {code}"], "alternatives": [], "source": "auto", "constant": code}
     for c, cid in (owner or {}).items():
+        why = "you confirmed this"
+        if c in usable and cid == "__keep__":          # 'Keep it': a plain column, no special business meaning
+            cid = {"measure": "number", "category": "group", "flag": "group", "id": "entity_id", "text": "free_text"}.get(usable[c]["role"])
+            why = "you kept this column as it is (a plain column, no special business meaning)"
         if c in usable and cid in CONCEPTS:
             prev = cols.get(c, {})
-            cols[c] = {"concept": cid, "label": CONCEPTS[cid].label, "confidence": 1.0, "reasons": ["you confirmed this"], "alternatives": prev.get("alternatives", []), "source": "owner"}
+            cols[c] = {"concept": cid, "label": CONCEPTS[cid].label, "confidence": 1.0, "reasons": [why], "alternatives": prev.get("alternatives", []), "source": "owner"}
     _calibrate(cols, nst, cst)
     for c, v in cols.items():
         if c.startswith("__"):
@@ -859,8 +894,9 @@ def infer_table(p, memory: dict | None = None, owner: dict | None = None) -> dic
         close = _close_call(c, v, nst, cst)
         if close is None and v["concept"] == "revenue" and v["confidence"] < 0.85 and any(w["concept"] == "money_other" for k, w in cols.items() if k != c):
             close = "money_other"                       # two loosely named amounts: which one is the sale is the owner's call
-        v["needs_confirmation"] = v["source"] == "auto" and v["concept"] not in ("number", "group", "personal", "free_text", "entity_id") and (
-            v["confidence"] < 0.6 or v["concept"] == "money_other" or close is not None)
+        plain = v["concept"] in ("number", "group", "personal", "free_text", "entity_id")
+        # a weak guess is always shown for checking; a plain reading only when it is very weak (under 50%)
+        v["needs_confirmation"] = v["source"] == "auto" and (v["confidence"] < 0.5 or (not plain and (v["confidence"] < 0.6 or v["concept"] == "money_other" or close is not None)))
         if close and v["needs_confirmation"]:
             v["unsure_between"] = close
     return {"columns": cols, "file": role, "identities": ids, "notes": context_notes}

@@ -52,7 +52,7 @@ def _run(df, name="messy_sales.csv", title_lines=True):
 
 def test_each_planted_problem_is_found():
     rep, c, f = _run(_messy())
-    assert len(c) == 26
+    assert len(c) == 27
     assert c["header_offset"]["status"] == "fixed"
     assert c["total_rows"]["status"] == "fixed"
     assert c["duplicate_rows"]["status"] == "fixed" and c["duplicate_rows"]["rows"] == 3

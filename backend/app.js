@@ -23,7 +23,7 @@ app.use(express.json({ limit: "1mb" }));
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: "draft-8", legacyHeaders: false });
 // Uploads and starting analyses are limited tightly; reading status and reports (polled while a run is in progress) gets plenty of room.
 const alphaWriteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false,
-    skip: (req) => req.method === "GET" || req.method === "HEAD" });
+    skip: (req) => req.method === "GET" || req.method === "HEAD" || req.path === "/quality" });   // the data-quality check is cheap and repeatable
 const alphaReadLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 3000, standardHeaders: "draft-8", legacyHeaders: false });
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);

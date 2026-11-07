@@ -84,6 +84,14 @@ def read(req: ReadRequest, x_engine_key: str | None = Header(default=None)):
     return pipeline.read(files, req.confirmations, default_provider() if req.use_ai else None, req.memory)
 
 
+@app.post("/v1/quality")
+def quality(req: ReadRequest, x_engine_key: str | None = Header(default=None)):
+    """The data-quality screen: cell-level problems per table, what was fixed on its own, and what the owner can decide."""
+    _auth(x_engine_key)
+    files = [{"id": f.id, "name": f.name, "path": _safe(f.path)} for f in req.files]
+    return pipeline.quality(files, req.confirmations, req.memory)
+
+
 class WarmRequest(BaseModel):
     files: list[FileSpec]
 

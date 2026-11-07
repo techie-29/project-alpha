@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from .llm import Provider, NullProvider
 from .validate import validate
+from . import clean as cleaning_stage
 from .understand.reader import read_any, table_sheets
 from .understand.dates import unpivot_periods, unpivot_tickers
 from .understand.prepare import prepare, Prepared
@@ -42,6 +43,25 @@ def _file_conf(confirmations: dict, name: str) -> dict:
         c[f"__date_order__::{col}"] = order
     if (confirmations.get("rows_in_time_order") or {}).get(name):
         c["__rows_in_time_order__"] = True
+    # the owner's choices for cleaning and naming (all keyed by the column's ORIGINAL name; renamed columns are translated)
+    fixes = (confirmations.get("fixes") or {})
+    if fixes.get(name) or fixes.get("*"):
+        c["__fix__"] = {**(fixes.get("*") or {}), **(fixes.get(name) or {})}
+    hints = {}
+    for src in (confirmations.get("mapped") or {}, confirmations.get("concepts") or {}):
+        for k, v in src.items():
+            f, _, col = k.partition("::")
+            if f == name and isinstance(v, str):
+                hints[col] = v
+    if hints:
+        c["__hints__"] = hints
+    ren = {k.partition("::")[2]: v for k, v in (confirmations.get("rename") or {}).items() if k.partition("::")[0] == name and str(v).strip()}
+    if ren:
+        c["__rename__"] = ren
+        for old, new in ren.items():                           # choices made on the original name still apply after renaming
+            for key in [k for k in list(c) if not k.startswith("__")]:
+                if key == old:
+                    c[new] = c[key]
     return c
 
 
@@ -84,12 +104,36 @@ def _read_table(spec: dict, path: Path, fc: dict, key: tuple) -> Prepared:
     df, rnotes = read_any(str(path), spec.get("sheet"))
     if spec.get("sheet") is not None:
         rnotes = [f"Sheet '{spec['sheet']}' of {spec.get('workbook') or path.name}."] + rnotes
+    # cell-level cleaning (before anything is learned from the data): safe fixes on their own, the owner's choice for the rest
+    cleaning = None
+    try:
+        df, cleaning = cleaning_stage.run(df, spec["name"], rnotes, fc.get("__hints__"), fc.get("__fix__"))
+        if any(a["id"] == "duplicate_rows" for a in cleaning["auto"]):          # the reader kept a few copies; cleaning removed them
+            rnotes = [x for x in rnotes if "are exact copies of other rows. They were kept" not in x]
+        rnotes = rnotes + _cleaning_notes(cleaning)
+    except Exception as e:                                   # cleaning must never stop a file from being read
+        rnotes = rnotes + [f"Cell-level cleaning could not run on this table ({type(e).__name__})."]
+    original = {}
+    ren = {o: n for o, n in (fc.get("__rename__") or {}).items() if o in df.columns and n and n != o}
+    if ren:
+        taken = set(df.columns) - set(ren)
+        final = {}
+        for o, n in ren.items():
+            n = str(n).strip()[:60]
+            while n in taken or n in final.values():
+                n += " (2)"
+            final[o] = n
+        df = df.rename(columns=final)
+        original = {n: o for o, n in final.items()}
+        rnotes = rnotes + [f"You renamed {len(final)} column(s): " + ", ".join(f"{o} → {n}" for o, n in list(final.items())[:6]) + "."]
     df, wide_note = unpivot_periods(df, spec["name"])
     if not wide_note:
         df, wide_note = unpivot_tickers(df)
     if wide_note:
         rnotes = rnotes + [wide_note]
     p = prepare(df, spec["name"], fc)
+    p.cleaning = cleaning                                      # type: ignore[attr-defined]
+    p.original_names = original                                # type: ignore[attr-defined]
     p.notes = rnotes + p.notes
     p.ai_status = None if p.kind != "summary" else {"status": "skipped"}   # type: ignore[attr-defined]  (asked in _understand)
     _CACHE[key] = p
@@ -97,6 +141,16 @@ def _read_table(spec: dict, path: Path, fc: dict, key: tuple) -> Prepared:
     if len(_LOCKS) > 400:
         _LOCKS.clear()
     return p
+
+
+def _cleaning_notes(rep: dict) -> list[str]:
+    """Plain-language lines about what cleaning did, so the data check and the report can show them."""
+    out = []
+    for g in rep["groups"]:
+        pick = next((c["label"] for c in g["choices"] if c["id"] == g["choice"]), g["choice"])
+        if g["choice"] in ("blank", "remove", "fill", "merge", "suggest"):
+            out.append(f"{g['title']} ({g['count']}) in {', '.join(g['columns']) or 'the rows'}: {pick.lower()}.")
+    return out
 
 
 MAX_CACHED_ROWS = int(os.environ.get("ALPHA_CACHE_ROWS", "3000000"))
@@ -195,7 +249,7 @@ def _reading(files, tables, links, model) -> dict:
             if c.startswith("__") or c in ("_t", "_row"):
                 continue
             v = fm["columns"].get(c, {})
-            cols.append({"name": c, "type": i["role"], "type_confidence": i["confidence"], "concept": v.get("concept"), "label": v.get("label"),
+            cols.append({"name": c, "original": (getattr(p, "original_names", {}) or {}).get(c, c), "type": i["role"], "type_confidence": i["confidence"], "concept": v.get("concept"), "label": v.get("label"),
                          "confidence": v.get("confidence"), "reasons": v.get("reasons", [])[:3], "alternatives": v.get("alternatives", [])[:3],
                          # a column whose meaning is clear does not need its type checked (an id read as an id, a rating as a number)
                          "needs_confirmation": bool(v.get("needs_confirmation")) or bool(i.get("needs_confirmation") and i["role"] not in ("empty", "constant")
@@ -214,6 +268,29 @@ def _reading(files, tables, links, model) -> dict:
                     "notes": p.notes, "warnings": p.warnings, "ai": getattr(p, "ai_status", None)})
     return {"files": out, "links": [l.public() for l in links], "entities": model["entities"], "ai_review": model.get("ai_review"),
             "concepts": [{"id": c.id, "label": c.label, "kind": c.kind, "area": c.area} for c in CONCEPTS.values()]}
+
+
+def quality(files: list[dict], confirmations: dict | None = None, memory: dict | None = None) -> dict:
+    """The data-quality screen: for every table, what cleaning found (cell by cell), what it fixed by itself, and what the owner can decide.
+    The answer reflects the choices already in `confirmations`, so it can be asked again after each change."""
+    confirmations = confirmations or {}
+    out, totals = [], {"issues": 0, "auto": 0, "decisions": 0, "cells": 0, "rows_before": 0, "rows_after": 0, "removed": 0}
+    for spec in expand_files(files):
+        p = _load(spec, confirmations, NullProvider())
+        rep = getattr(p, "cleaning", None)
+        if not rep:
+            out.append({"file": spec["name"], "error": "This table could not be checked."}); continue
+        out.append(rep)
+        for k in ("issues", "auto", "decisions", "rows_before", "rows_after", "removed"):
+            totals[k] += rep["summary"][k]
+        totals["cells"] += rep["cells"]
+    from .clean.scan import health
+    totals["health"] = health(totals["issues"], totals["cells"])
+    return clean_json({"files": out, "totals": totals})
+
+
+def clean_json(o):
+    return clean(o)
 
 
 def read(files: list[dict], confirmations: dict | None = None, provider: Provider | None = None, memory: dict | None = None) -> dict:

@@ -10,7 +10,7 @@ from ..model.concepts import CONCEPTS
 ROLE_TEXT = {"transactions": "Activity log", "lines": "Line items", "master": "Master list", "snapshot": "Snapshot over time", "periodic": "Period totals",
              "reference": "Reference table", "summary": "Summary (not analysed)", "other": "Other"}
 GROUP_ORDER = ["channel", "location", "product_group", "segment", "site_id", "payment_method", "delivery_method", "campaign", "status", "gender", "sentiment",
-               "reason", "employee_id", "supplier_id", "name_label", "yes_no", "group"]
+               "reason", "demographic", "priority_level", "team_role", "period_label", "employee_id", "supplier_id", "name_label", "yes_no", "group"]
 MAX_DAY_POINTS = 2200
 
 
@@ -355,7 +355,7 @@ def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> d
                 add("customers", ch)
             rk = ranking(S, "customer_id", [m for m in (ms.get("revenue"), ms.get("orders")) if m], cur, None, "Top customers")
             add("customers", rk)
-            for c in [c for g in ("segment", "location", "gender") for c in S.groups.get(g, [])][:3]:
+            for c in [c for g in ("segment", "location", "gender", "demographic") for c in S.groups.get(g, [])][:3]:
                 if "revenue_per_customer" in ms:
                     add("customers", bar_chart(S, ms["revenue_per_customer"], c, cur))
         # generic numbers
@@ -394,7 +394,7 @@ def build_overview(frames: dict[str, Frame], file_infos: dict, links: list) -> d
             add("products", histogram(P, "unit_price", "Product prices", "money", cur or ""))
     # ---- customers master ----
     if C:
-        for c in [c for g in ("segment", "location", "gender") for c in C.groups.get(g, [])][:4]:
+        for c in [c for g in ("segment", "location", "gender", "demographic") for c in C.groups.get(g, [])][:4]:
             add("customers", bar_chart(C, Metric("rows_all", "Customers", "customers", (), ("count",), "count", roles=("master",)), c, None))
         if "age" in C.df:
             add("customers", histogram(C, "age", "Customer ages"))

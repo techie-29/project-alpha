@@ -197,6 +197,8 @@ def classify_column(name: str, s: pd.Series, n_rows: int) -> dict:
             sid += 0.5; reasons.append("Header says id/code and there are many distinct values.")
         elif ints and id_header(name) and nu > 20 and not (MONEY.search(name) or COUNT.search(name)):
             sid += 0.6; reasons.append("Header names a document or code (invoice, bill no., item code) and the values are whole numbers.")
+        elif ints and id_header(name) and nn >= 5 and nu >= 0.95 * nn and not (MONEY.search(name) or COUNT.search(name)):
+            sid += 0.6; reasons.append("Header names an identifier and every value is different (a short list).")
         if ints and ratio >= 0.9 and nn > 50 and not (MONEY.search(name) or COUNT.search(name) or PCT.search(name)):
             sid += 0.35; reasons.append("Whole numbers that are almost all different.")
         smeas = 0.5
