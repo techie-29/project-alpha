@@ -42,6 +42,15 @@ async function listAnalyses(businessAccountId) {
     "SELECT id, status, progress, error, file_ids, created_at AS createdAt, finished_at AS finishedAt FROM alpha_analyses WHERE business_account_id=? ORDER BY created_at DESC LIMIT 50", [businessAccountId]);
   return rows.map((r) => ({ ...r, file_ids: parse(r.file_ids) }));
 }
+/** Removes one analysis with its saved report and the questions/answers asked on it. The uploaded files stay. */
+async function deleteAnalysis(businessAccountId, id) {
+  const [rows] = await db.execute("SELECT id FROM alpha_analyses WHERE id=? AND business_account_id=?", [id, businessAccountId]);
+  if (!rows.length) return false;
+  await db.execute("DELETE FROM alpha_questions WHERE analysis_id=? AND business_account_id=?", [id, businessAccountId]);
+  await db.execute("DELETE FROM alpha_answers WHERE analysis_id=? AND business_account_id=?", [id, businessAccountId]);
+  await db.execute("DELETE FROM alpha_analyses WHERE id=? AND business_account_id=?", [id, businessAccountId]);
+  return true;
+}
 async function updateAnalysis(businessAccountId, id, patch) {
   const map = { status: "status", stage: "stage", progress: "progress", error: "error" };
   const sets = [], vals = [];
@@ -101,4 +110,4 @@ async function listQuestions(businessAccountId, analysisId) {
   return rows.map((r) => ({ question: r.question, result: parse(r.result), createdAt: r.createdAt }));
 }
 
-module.exports = { listMemory, saveMemory, saveQuestion, listQuestions,  addFile, listFiles, getFiles, deleteFile, createAnalysis, getAnalysis, listAnalyses, updateAnalysis, getReport, saveFeedback, listPatternPreferences, listFeedback, saveAnswer, listAnswers };
+module.exports = { listMemory, saveMemory, saveQuestion, listQuestions,  addFile, listFiles, getFiles, deleteFile, createAnalysis, getAnalysis, listAnalyses, deleteAnalysis, updateAnalysis, getReport, saveFeedback, listPatternPreferences, listFeedback, saveAnswer, listAnswers };

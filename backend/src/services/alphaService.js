@@ -103,6 +103,12 @@ function createAlphaService({ repository = defaultRepository, engine = createEng
       return { ...pick(a), status: "running", stage: job.stage, progress: job.progress };
     },
     list: (businessAccountId) => repository.listAnalyses(businessAccountId),
+    async deleteAnalysis(businessAccountId, id) {
+      const a = await repository.getAnalysis(businessAccountId, id);
+      if (!a) throw httpError(404, "Analysis not found");
+      if (a.status === "running" || a.status === "queued") throw httpError(409, "This analysis is still running. Delete it once it has finished.");
+      await repository.deleteAnalysis(businessAccountId, id);
+    },
     async report(businessAccountId, id) {
       const report = await repository.getReport(businessAccountId, id);
       if (!report) throw httpError(404, "The report is not ready");

@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listAnalyses } from "../services/alphaApi";
+import { useAnalysis } from "../context/AnalysisContext";
+import { deleteAnalysis, listAnalyses } from "../services/alphaApi";
 
 const STATUS = { queued: "Queued", running: "Running", done: "Ready", failed: "Stopped" };
 
 export default function AnalysesPage({ token }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState("");
+  const [asking, setAsking] = useState(null);
+  const { forget } = useAnalysis();
+  async function remove(id) {
+    setError("");
+    try { await deleteAnalysis(id, token); setItems((l) => l.filter((a) => a.id !== id)); setAsking(null); await forget(id); }
+    catch (e) { setError(e.message); setAsking(null); }
+  }
   useEffect(() => { listAnalyses(token).then(setItems).catch((e) => setError(e.message)); }, [token]);
   return <div className="page-content">
     <section className="page-header"><span className="eyebrow">Home</span><h1>Your analyses</h1><p>Each analysis is a snapshot of what Alpha found in a set of files. Run a new one whenever you have fresh data.</p></section>
@@ -20,7 +28,11 @@ export default function AnalysesPage({ token }) {
         <span>{(a.file_ids || []).length} file{(a.file_ids || []).length === 1 ? "" : "s"}</span>
         <span className={`al-badge al-status-${a.status}`}>{STATUS[a.status]}{a.status === "running" ? ` ${a.progress}%` : ""}</span>
         {a.error && <small>{a.error}</small>}
-      </Link></li>)}</ul>
+      </Link>
+        {asking === a.id
+          ? <span className="al-confirm">Delete this analysis? <button type="button" className="al-link-button al-danger" onClick={() => remove(a.id)}>Yes, delete</button> <button type="button" className="al-link-button" onClick={() => setAsking(null)}>Cancel</button></span>
+          : <button type="button" className="al-link-button" disabled={a.status === "running" || a.status === "queued"} title={a.status === "running" ? "Wait until it finishes" : ""} onClick={() => setAsking(a.id)} aria-label="Delete this analysis">Delete</button>}
+      </li>)}</ul>
     </>}
   </div>;
 }

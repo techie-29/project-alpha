@@ -18,6 +18,7 @@ function createAlphaRouter({ service = createAlphaService(), upload = alphaUploa
   router.post("/quality", wrap(async (req, res) => res.json({ success: true, quality: await service.quality(uid(req), req.body || {}) })));
   router.post("/analyses", wrap(async (req, res) => res.status(202).json({ success: true, ...(await service.start(uid(req), req.body || {})) })));
   router.get("/analyses", wrap(async (req, res) => res.json({ success: true, analyses: await service.list(uid(req)) })));
+  router.delete("/analyses/:id", wrap(async (req, res) => { await service.deleteAnalysis(uid(req), req.params.id); res.json({ success: true }); }));
   router.get("/analyses/:id", wrap(async (req, res) => res.json({ success: true, analysis: await service.status(uid(req), req.params.id) })));
   router.get("/analyses/:id/report", wrap(async (req, res) => res.json({ success: true, report: await service.report(uid(req), req.params.id) })));
   router.get("/analyses/:id/export", wrap(async (req, res) => {

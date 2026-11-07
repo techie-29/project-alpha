@@ -25,6 +25,7 @@ export const deleteFile = (id, token) => request(`/files/${id}`, token, { method
 export const readFiles = (fileIds, confirmations, token) => request("/read", token, { method: "POST", body: { fileIds, confirmations } }).then((r) => r.reading);
 export const checkQuality = (fileIds, confirmations, token) => request("/quality", token, { method: "POST", body: { fileIds, confirmations } }).then((r) => r.quality);
 export const startAnalysis = (fileIds, confirmations, token) => request("/analyses", token, { method: "POST", body: { fileIds, confirmations } }).then((r) => r.id);
+export const deleteAnalysis = (id, token) => request(`/analyses/${id}`, token, { method: "DELETE" });
 export const listAnalyses = (token) => request("/analyses", token).then((r) => r.analyses);
 export const getAnalysis = (id, token) => request(`/analyses/${id}`, token).then((r) => r.analysis);
 export const getReport = (id, token) => request(`/analyses/${id}/report`, token).then((r) => r.report);

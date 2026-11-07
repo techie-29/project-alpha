@@ -55,7 +55,15 @@ export function AnalysisProvider({ token, children }) {
   }, [currentId, token, refreshList]);
 
   const view = useMemo(() => (report && (report.version === 2 || report.brain === "full AI") ? viewOf(report) : null), [report]);
-  const value = useMemo(() => ({ token, analyses, currentId, select, status, report, view, error, refreshList }), [token, analyses, currentId, select, status, report, view, error, refreshList]);
+  /** An analysis was deleted: stop pointing at it and let the newest remaining one take over. */
+  const forget = useCallback((id) => {
+    chosen.current.delete(id);
+    try { if (localStorage.getItem(LAST) === id) localStorage.removeItem(LAST); } catch { /* storage unavailable */ }
+    setCurrentId((c) => (c === id ? null : c));
+    return refreshList();
+  }, [refreshList]);
+
+  const value = useMemo(() => ({ token, forget, analyses, currentId, select, status, report, view, error, refreshList }), [token, forget, analyses, currentId, select, status, report, view, error, refreshList]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

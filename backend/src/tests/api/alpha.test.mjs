@@ -21,6 +21,7 @@ function fakeRepo() {
     createAnalysis: vi.fn(async (a) => { analyses[a.id] = { id: a.id, owner: a.businessAccountId, status: "queued", stage: "", progress: 0 }; }),
     getAnalysis: vi.fn(async (o, id) => (analyses[id]?.owner === o ? analyses[id] : null)),
     listAnalyses: vi.fn(async () => []),
+    deleteAnalysis: vi.fn(async (o, id) => { delete analyses[id]; return true; }),
     updateAnalysis: vi.fn(async (o, id, patch) => { Object.assign(analyses[id], patch); }),
     getReport: vi.fn(async (o, id) => (analyses[id]?.owner === o && analyses[id].report) || null),
     saveFeedback: vi.fn(async () => {}), listPatternPreferences: vi.fn(async () => [{ patternKey: "net_sales|region", verdict: "not_useful" }]), listFeedback: vi.fn(async () => []),
@@ -44,6 +45,17 @@ function build({ repo = fakeRepo(), engine } = {}) {
 }
 
 describe("alpha API", () => {
+  it("deletes a finished analysis, refuses a running or someone else's one", async () => {
+    const { app, repo } = build();
+    repo.analyses.a1 = { id: "a1", owner: 7, status: "done" };
+    repo.analyses.a2 = { id: "a2", owner: 7, status: "running" };
+    repo.analyses.a3 = { id: "a3", owner: 8, status: "done" };
+    expect((await request(app).delete("/api/alpha/analyses/a1")).status).toBe(200);
+    expect(repo.deleteAnalysis).toHaveBeenCalledWith(7, "a1");
+    expect((await request(app).delete("/api/alpha/analyses/a2")).status).toBe(409);
+    expect((await request(app).delete("/api/alpha/analyses/a3")).status).toBe(404);
+  });
+
   it("registers uploads and refuses an empty upload", async () => {
     const { app, repo } = build();
     expect((await request(app).post("/api/alpha/files")).status).toBe(400);
