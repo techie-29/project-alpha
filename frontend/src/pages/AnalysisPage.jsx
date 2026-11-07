@@ -1,16 +1,17 @@
 import { useEffect } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { AskTab, DataTab, ExploreTab, FindingsTab, ReadTab } from "../components/alpha/report/Report";
+import { AskTab, DataTab, FindingsTab, ReadTab } from "../components/alpha/report/Report";
 import { AREA_PAGES, AreaPage, Head, TrendsPage } from "../components/alpha/AreaPage";
 import { useAnalysis } from "../context/AnalysisContext";
 import RunProgress from "../components/alpha/RunProgress";
 import OverviewPage from "../components/alpha/OverviewPage";
+import WhatIfPage from "../components/alpha/WhatIfPage";
+import ExplorerPage from "../components/alpha/ExplorerPage";
+import AlertsPage from "../components/alpha/AlertsPage";
 
 const SECTIONS = new Set(["overview", "mapping", "quality", "explorer", "sales", "customers", "products", "trends", "suggestions", "alerts", "whatif", "ask", "hood"]);
 const OLD_TAB = { summary: "overview", findings: "suggestions", explore: "explorer", data: "quality", ask: "ask", reading: "mapping" };
 const SOON = {
-  alerts: ["Alerts", "Warnings that need your attention: sudden drops, rising refunds, data problems. Coming in this build."],
-  whatif: ["What-If", "Move a slider (price, discount, costs) and see revenue and profit change. Coming in this build."],
   hood: ["Under the Hood", "Everything Alpha did with your files, step by step. Coming in this build."],
 };
 
@@ -42,8 +43,10 @@ export default function AnalysisPage() {
   else if (section === "trends") body = <TrendsPage report={report}/>;
   else if (section === "mapping") body = <><Head title="Header Mapping" intro="What Alpha understood each column to mean, and how it used it."><Link className="secondary-button" to="/upload">Change the mapping</Link></Head><ReadTab report={report} view={view} open={() => go("suggestions")}/></>;
   else if (section === "quality") body = <><Head title="Data Quality" intro="Every check Alpha ran on your rows, and what it found."/><DataTab report={report} view={view}/></>;
-  else if (section === "explorer") body = <><Head title="Data Explorer" intro="Every chart and finding, grouped by area."/><ExploreTab report={report} view={view}/></>;
+  else if (section === "explorer") body = <><Head title="Data Explorer" intro="Search, filter and sort every finding Alpha made."/><ExplorerPage view={view}/></>;
   else if (section === "suggestions") body = <><Head title="Suggestions" intro="What Alpha found, ranked by importance and the money involved."/><FindingsTab view={view}/></>;
+  else if (section === "alerts") body = <><Head title="Alerts" intro="Everything that needs your attention, most serious first."/><AlertsPage id={id} report={report} view={view}/></>;
+  else if (section === "whatif") body = <><Head title="What-If" intro="Try a change and see what it would do to revenue and profit."/><WhatIfPage report={report}/></>;
   else if (section === "ask") body = <><Head title="Ask Your Data" intro="Ask a question in plain words. Alpha answers from your rows only."/><AskTab analysisId={id} token={token} aiOn={report.ai?.provider && report.ai.provider !== "none"} initial={params.get("q") || undefined}/></>;
   else body = <><Head title={SOON[section][0]}/><div className="al-panel al-empty-page"><p>{SOON[section][1]}</p></div></>;
   return <div className="page-content al-report pg-anim" key={section}>{body}</div>;
