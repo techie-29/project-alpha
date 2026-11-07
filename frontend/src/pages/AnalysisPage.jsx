@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { AskTab, DataTab, ExploreTab, FindingsTab, ReadTab, SummaryTab } from "../components/alpha/report/Report";
 import { AREA_PAGES, AreaPage, Head, TrendsPage } from "../components/alpha/AreaPage";
 import { useAnalysis } from "../context/AnalysisContext";
+import RunProgress from "../components/alpha/RunProgress";
 
 const SECTIONS = new Set(["overview", "mapping", "quality", "explorer", "sales", "customers", "products", "trends", "suggestions", "alerts", "whatif", "ask", "hood"]);
 const OLD_TAB = { summary: "overview", findings: "suggestions", explore: "explorer", data: "quality", ask: "ask", reading: "mapping" };
@@ -24,11 +25,7 @@ export default function AnalysisPage() {
   if (currentId !== id || (!status && !error)) return <div className="page-content"><div className="analytics-loading"><span className="spinner"/>Loading…</div></div>;
   if (error && !status) return <div className="page-content"><div className="error-banner" role="alert"><span>!</span><div><strong>Could not load this analysis</strong><p>{error}</p></div></div><Link to="/analyses">Back to analyses</Link></div>;
   if (status.status === "failed") return <div className="page-content"><div className="error-banner" role="alert"><span>!</span><div><strong>The analysis stopped</strong><p>{status.error || "Something went wrong."}</p></div></div><Link className="secondary-button" to="/upload">Try again</Link></div>;
-  if (!report) return <div className="page-content">
-    <section className="page-header"><span className="eyebrow">Working on it</span><h1>{status.stage || "Starting"}…</h1><p>Alpha is reading every file, checking the data and working out what matters. Large files take a few minutes; you can leave this page.</p></section>
-    <div className="al-progress" role="progressbar" aria-valuenow={status.progress}><i style={{ width: `${status.progress}%` }}/><span>{status.progress}%</span></div>
-    {status.engineMessage && <p className="al-note-warn">{status.engineMessage}</p>}
-  </div>;
+  if (!report) return <div className="page-content pg-anim"><RunProgress status={status}/></div>;
   if (!view) return <div className="page-content"><div className="al-panel">This analysis was made by an older version of Alpha. Please run it again to see the new report.</div><Link className="secondary-button" to="/upload">Run again</Link></div>;
 
   const files = `${report.files.length} file${report.files.length === 1 ? "" : "s"}: ${report.files.map((f) => f.name).join(", ")}`;
