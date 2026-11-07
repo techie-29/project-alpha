@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AskTab, DataTab, FindingsTab, ReadTab } from "../components/alpha/report/Report";
 import { AREA_PAGES, AreaPage, Head, TrendsPage } from "../components/alpha/AreaPage";
@@ -7,6 +7,7 @@ import RunProgress from "../components/alpha/RunProgress";
 import OverviewPage from "../components/alpha/OverviewPage";
 import WhatIfPage from "../components/alpha/WhatIfPage";
 import ExplorerPage from "../components/alpha/ExplorerPage";
+import { PickContext } from "../components/alpha/viz/PickContext";
 import HoodPage from "../components/alpha/HoodPage";
 import AlertsPage from "../components/alpha/AlertsPage";
 
@@ -25,6 +26,14 @@ export default function AnalysisPage() {
     const t = setTimeout(() => { const el = document.getElementById(hash.slice(1)); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("ar-flash"); setTimeout(() => el.classList.remove("ar-flash"), 2000); } }, 250);
     return () => clearTimeout(t);
   }, [section, hash, report]);
+  const pick = useMemo(() => {
+    const words = (view?.cards || []).map((c) => [c.headline, ...(c.points || []), c.look_into].filter(Boolean).join(" ").toLowerCase());
+    return (name) => {
+      const n = String(name ?? "").trim();
+      if (n.length < 2 || /^\(.*\)$|^other/i.test(n) || !words.some((w) => w.includes(n.toLowerCase()))) return null;
+      return () => navigate(`/analysis/${id}/explorer?q=${encodeURIComponent(n)}`);
+    };
+  }, [view, id, navigate]);
   if (!SECTIONS.has(section)) return <Navigate to={`/analysis/${id}/overview`} replace/>;
   const go = (t) => navigate(`/analysis/${id}/${OLD_TAB[t] || t}`);
 
@@ -47,5 +56,5 @@ export default function AnalysisPage() {
   else if (section === "whatif") body = <><Head title="What-If" intro="Try a change and see what it would do to revenue and profit."/><WhatIfPage report={report}/></>;
   else if (section === "hood") body = <><Head title="Under the Hood" intro="Everything Alpha did with your files, step by step."/><HoodPage id={id} report={report}/></>;
   else if (section === "ask") body = <><Head title="Ask Your Data" intro="Ask a question in plain words. Alpha answers from your rows only."/><AskTab analysisId={id} token={token} aiOn={report.ai?.provider && report.ai.provider !== "none"} initial={params.get("q") || undefined}/></>;
-  return <div className="page-content al-report pg-anim" key={section}>{body}</div>;
+  return <PickContext.Provider value={pick}><div className="page-content al-report pg-anim" key={section}>{body}</div></PickContext.Provider>;
 }

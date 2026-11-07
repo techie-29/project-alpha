@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AXIS, DEEMPH, EMPHASIS, GRID, INK2, SERIES, tick, tooltipStyle } from "./theme";
+import { usePick } from "./PickContext";
 import { axisFmt, cellText, fmtValue } from "../../../utils/alphaFormat";
 
 const GRAIN_LABEL = { day: "Day", week: "Week", month: "Month", quarter: "Quarter", year: "Year" };
@@ -53,9 +54,12 @@ function Bars({ spec, compactView }) {
   const data = rows.map((r) => ({ ...r, group: String(r.group) }));
   const height = horizontal ? Math.max(120, 28 * data.length + 30) : (compactView ? 180 : 220);
   const focus = spec.focus;
+  const pick = usePick();
+  const click = (d) => { const f = pick(d?.group ?? d?.payload?.group); if (f) f(); };
+  const clickable = (g) => !!pick(g);
   const table = <DataTable head={["Group", "Value", ...(rows.some((r) => r.share != null) ? ["Share"] : []), ...(rows.some((r) => r.rows != null) ? ["Rows"] : [])]}
     rows={rows.map((r) => [r.group, fmtValue(r.value, fmt, spec.unit), ...(rows.some((x) => x.share != null) ? [r.share != null ? `${(r.share * 100).toFixed(1)}%` : ""] : []), ...(rows.some((x) => x.rows != null) ? [r.rows?.toLocaleString() ?? ""] : [])])}/>;
-  return <Frame title={spec.title + (spec.unit ? ` (${spec.unit})` : "")} height={height} table={table} note={spec.note}>
+  return <Frame title={spec.title + (spec.unit ? ` (${spec.unit})` : "")} height={height} table={table} note={spec.note || (data.some((r) => clickable(r.group)) ? "Click a bar to see the findings about it." : undefined)}>
     <ResponsiveContainer>
       {horizontal
         ? <BarChart data={data} layout="vertical" margin={{ top: 4, right: 56, left: 8, bottom: 0 }} barCategoryGap={6}>
@@ -63,8 +67,8 @@ function Bars({ spec, compactView }) {
             <XAxis type="number" tick={tick} tickFormatter={axisFmt(fmt)} axisLine={false} tickLine={false} domain={[(d) => Math.min(0, d), "auto"]}/>
             <YAxis type="category" dataKey="group" tick={{ ...tick, fill: INK2 }} width={130} tickLine={false} axisLine={{ stroke: GRID }}/>
             <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtValue(v, fmt, spec.unit), spec.metric_label || "Value"]} cursor={{ fill: "#0000000a" }}/>
-            <Bar dataKey="value" maxBarSize={20} radius={[0, 4, 4, 0]} label={{ position: "right", fill: INK2, fontSize: 11, formatter: (v) => fmtValue(v, fmt) }}>
-              {data.map((r) => <Cell key={r.group} fill={focus ? (r.group === focus ? EMPHASIS : DEEMPH) : (r.other ? DEEMPH : EMPHASIS)}/>)}
+            <Bar dataKey="value" maxBarSize={20} radius={[0, 4, 4, 0]} onClick={click} label={{ position: "right", fill: INK2, fontSize: 11, formatter: (v) => fmtValue(v, fmt) }}>
+              {data.map((r) => <Cell key={r.group} cursor={clickable(r.group) ? "pointer" : "default"} fill={focus ? (r.group === focus ? EMPHASIS : DEEMPH) : (r.other ? DEEMPH : EMPHASIS)}/>)}
             </Bar>
           </BarChart>
         : <BarChart data={data} margin={{ top: 16, right: 8, left: 0, bottom: 0 }} barCategoryGap="20%">
@@ -72,8 +76,8 @@ function Bars({ spec, compactView }) {
             <XAxis dataKey="group" tick={tick} tickLine={false} axisLine={{ stroke: GRID }} interval={data.length > 14 ? "preserveStartEnd" : 0} minTickGap={4}/>
             <YAxis tick={tick} width={52} tickFormatter={axisFmt(fmt)} tickLine={false} axisLine={false}/>
             <Tooltip contentStyle={tooltipStyle} formatter={(v) => [fmtValue(v, fmt, spec.unit), "Value"]} cursor={{ fill: "#0000000a" }}/>
-            <Bar dataKey="value" maxBarSize={24} radius={[4, 4, 0, 0]}>
-              {data.map((r) => <Cell key={r.group} fill={focus ? (r.group === focus ? EMPHASIS : DEEMPH) : EMPHASIS}/>)}
+            <Bar dataKey="value" maxBarSize={24} radius={[4, 4, 0, 0]} onClick={click}>
+              {data.map((r) => <Cell key={r.group} cursor={clickable(r.group) ? "pointer" : "default"} fill={focus ? (r.group === focus ? EMPHASIS : DEEMPH) : EMPHASIS}/>)}
             </Bar>
           </BarChart>}
     </ResponsiveContainer>

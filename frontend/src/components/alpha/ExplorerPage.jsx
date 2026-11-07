@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { FindingCard } from "./report/Report";
 
 const TONES = [["all", "All"], ["risk", "Risks"], ["strength", "Strengths"], ["neutral", "Worth knowing"], ["data", "Data issues"]];
@@ -8,7 +9,8 @@ const text = (c) => [c.headline, ...(c.points || []), c.why_it_matters, c.look_i
 
 /** Every finding in one searchable list: filter by kind and area, search the words, sort by what matters. */
 export default function ExplorerPage({ view }) {
-  const [q, setQ] = useState("");
+  const [params] = useSearchParams();
+  const [q, setQ] = useState(params.get("q") || "");
   const [tone, setTone] = useState("all");
   const [area, setArea] = useState("all");
   const [sort, setSort] = useState("importance");

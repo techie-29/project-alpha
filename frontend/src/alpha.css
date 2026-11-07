@@ -227,3 +227,18 @@ tr.al-dq-gone td{text-decoration:line-through;opacity:.5}
 .hd-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}.hd-list li{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;background:#f6f8f9;border-radius:8px;font-size:13.5px}.hd-list span{color:var(--dim);white-space:nowrap}
 .hd-chips{display:flex;gap:8px;flex-wrap:wrap}
 @media (max-width:820px){.hd-sum{grid-template-columns:repeat(2,1fr)}}
+/* motion polish: list items rise in one after another, cards lift on hover, buttons press; all switched off for reduced motion above */
+@keyframes al-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.al-alerts li,.al-analyses li,.hd-step,.ov-card,.ar-list>*,.al-tiles>*{animation:al-rise .32s ease-out both}
+.al-alerts li:nth-child(2),.al-analyses li:nth-child(2),.hd-step:nth-child(4),.ar-list>*:nth-child(2){animation-delay:.04s}
+.al-alerts li:nth-child(3),.al-analyses li:nth-child(3),.hd-step:nth-child(5),.ar-list>*:nth-child(3){animation-delay:.08s}
+.al-alerts li:nth-child(4),.al-analyses li:nth-child(4),.hd-step:nth-child(6),.ar-list>*:nth-child(4){animation-delay:.12s}
+.al-alerts li:nth-child(n+5),.al-analyses li:nth-child(n+5),.hd-step:nth-child(n+7),.ar-list>*:nth-child(n+5){animation-delay:.16s}
+.al-alerts li,.ov-card,.hd-step,.al-panel{transition:box-shadow .18s ease,border-color .18s ease,transform .18s ease}
+.al-alerts li:hover,.ov-card:hover,.hd-step:hover{box-shadow:0 4px 14px rgba(20,40,30,.07);border-color:#c9d6cf}
+.primary-button,.secondary-button,.al-filters button{transition:background .15s ease,transform .1s ease,box-shadow .15s ease,border-color .15s ease}
+.primary-button:active:not(:disabled),.secondary-button:active:not(:disabled),.al-filters button:active{transform:scale(.97)}
+.al-filters button:hover:not(.on){border-color:#0b6e4d}
+.wi-row b{transition:color .2s ease}
+.hd-step[open]>.hd-body{animation:al-rise .22s ease-out}
+.ex .ar-list>*{animation-duration:.2s}
