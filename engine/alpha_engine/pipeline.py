@@ -100,6 +100,24 @@ def _load(spec: dict, confirmations: dict, provider: Provider) -> Prepared:
         return _read_table(spec, path, fc, key)
 
 
+def _inherit_ai(p: Prepared, key: tuple) -> None:
+    """The same file read again with different cleaning or naming choices must not pay for the AI's look at its columns a second
+    time: take the answer from an earlier read of the same file (same columns, same roles) instead of asking again."""
+    if p.ai_status is not None:
+        return
+    for k, old in reversed(list(_CACHE.items())):
+        st = getattr(old, "ai_status", None)
+        if k[:5] != key[:5] or not st or st.get("provider") in (None, "none") or st.get("status") != "ok" and not st.get("asked") == 0:
+            continue
+        if list(old.df.columns) != list(p.df.columns):
+            continue
+        for c, info in old.roles.items():
+            if c in p.roles and info.get("ai") and p.roles[c].get("role") == info.get("role"):
+                p.roles[c]["ai"] = info["ai"]
+        p.ai_status = dict(st)
+        return
+
+
 def _read_table(spec: dict, path: Path, fc: dict, key: tuple) -> Prepared:
     df, rnotes = read_any(str(path), spec.get("sheet"))
     if spec.get("sheet") is not None:
@@ -136,6 +154,7 @@ def _read_table(spec: dict, path: Path, fc: dict, key: tuple) -> Prepared:
     p.original_names = original                                # type: ignore[attr-defined]
     p.notes = rnotes + p.notes
     p.ai_status = None if p.kind != "summary" else {"status": "skipped"}   # type: ignore[attr-defined]  (asked in _understand)
+    _inherit_ai(p, key)
     _CACHE[key] = p
     _trim_cache()
     if len(_LOCKS) > 400:

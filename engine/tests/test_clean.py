@@ -61,3 +61,22 @@ def test_cleaned_cells_are_not_counted_again_as_missing(tmp_path):
         text = " ".join(found)
         assert "'age' is empty on 9.1% of rows (1)" in text
         assert "signup_date" not in text
+
+
+def test_changing_cleaning_choices_does_not_ask_the_ai_about_columns_again(tmp_path):
+    """The AI's look at unclear columns is paid for once per file, however many times the cleaning choices change."""
+    from alpha_engine.llm import FakeProvider
+    path = tmp_path / "corrupted_customers.xlsx"
+    pd.DataFrame(ROWS, columns=COLS).to_excel(path, index=False)
+    f = [{"name": "corrupted_customers.xlsx", "path": str(path)}]
+    pipeline._CACHE.clear()
+    ai = FakeProvider(answer={})
+    base = {"concepts": {}, "links": {}, "columns": {}, "rows_in_time_order": {}}
+    reading = pipeline.read(f, base, ai)
+    reviews = lambda: sum(1 for c in ai.calls if "all_columns" in c)
+    assert reviews() == 1
+    conf = {**base, "mapped": {f"corrupted_customers.xlsx::{c['name']}": c["concept"] for c in reading["files"][0]["columns"] if c.get("concept")},
+            "fixes": {"*": {"impossible_value": "remove"}}}
+    pipeline.quality(f, conf)
+    pipeline.analyze("t", f, conf, str(tmp_path), provider=ai)
+    assert reviews() == 1
