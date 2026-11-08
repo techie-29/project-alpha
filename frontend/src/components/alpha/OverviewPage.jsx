@@ -4,6 +4,7 @@ import Chart from "./viz/Chart";
 import { allSections, allTiles } from "./AreaPage";
 import { change, fmtValue } from "../../utils/alphaFormat";
 import { healthOf } from "../../context/AnalysisContext";
+import { businessHealth } from "../../utils/businessHealth";
 
 const KEY = ["revenue", "profit", "orders", "customers", "margin"];
 
@@ -30,6 +31,28 @@ function snapshot(tiles, risks, strengths, view, health) {
   const title = risks.length ? `${risks.length} thing${risks.length === 1 ? "" : "s"} need${risks.length === 1 ? "s" : ""} your attention.` : strengths.length ? "Nothing urgent. A few things are going well." : "Nothing urgent to report.";
   const tail = `Alpha found ${risks.length} risk${risks.length === 1 ? "" : "s"} and ${strengths.length} strength${strengths.length === 1 ? "" : "s"}.${health != null ? ` Data health is ${health}.` : ""}`;
   return { title, text: `${lead} ${tail}` };
+}
+
+function Ring({ value, label, to, onClick, aria, tone = "" }) {
+  const inner = <><svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="19" className="ov-ring-bg"/><circle cx="22" cy="22" r="19" className="ov-ring-fg" strokeDasharray={`${(value / 100) * 119.4} 119.4`} transform="rotate(-90 22 22)"/></svg>
+    <b>{value}</b><span>{label}</span></>;
+  return to ? <Link to={to} className={`ov-ring ${tone}`} aria-label={aria}>{inner}</Link> : <button type="button" className={`ov-ring ${tone}`} onClick={onClick} aria-label={aria}>{inner}</button>;
+}
+
+function BizHealth({ bh, id }) {
+  return <section className="ov-card bh" id="biz-health">
+    <div className="bh-head"><div><h3>Business health <span className={`bh-label bh-${bh.label === "Strong" ? "s" : bh.label === "Steady" ? "m" : "w"}`}>{bh.label}</span></h3>
+      <p className="al-muted">How the business itself is doing, from {bh.parts.length} parts your files can measure. Data health (how clean the files are) is separate.</p></div>
+      <b className="bh-score">{bh.score}<small>/100</small></b></div>
+    {bh.raise && <Link className="bh-raise" to={`/analysis/${id}/${bh.raise.page}`}>
+      <span>What would raise your score most</span><strong>{bh.raise.label}: {bh.raise.fix}</strong><small>Fixing it fully adds up to {bh.raise.gain} points.</small></Link>}
+    <ul className="bh-parts">{bh.parts.map((p) => <li key={p.id}>
+      <div className="bh-row"><span>{p.label}</span><b>{p.score}</b></div>
+      <div className="bh-bar" aria-hidden="true"><i style={{ width: `${p.score}%` }} className={p.score >= 75 ? "s" : p.score >= 50 ? "m" : "w"}/></div>
+      <small>{p.value}</small><details><summary>How this is scored</summary><p>{p.how} Weight: {p.weight}%.</p></details>
+    </li>)}</ul>
+    {bh.missing.length > 0 && <p className="al-muted bh-miss">Not scored because your files do not show it: {bh.missing.map((m) => ({ growth: "growth", margin: "profit margin", customers: "returning customers", problems: "returns and cancellations", stock: "stock" })[m]).join(", ")}.</p>}
+  </section>;
 }
 
 function HeroFigure({ t }) {
@@ -78,6 +101,7 @@ export default function OverviewPage({ id, report, view }) {
   const risks = allRisks.filter((c) => !actionIds.has(c.insight_id)).length ? allRisks.filter((c) => !actionIds.has(c.insight_id)) : allRisks;
   const strengths = view.cards.filter((c) => c.tone === "strength");
   const health = healthOf(report);
+  const bh = useMemo(() => businessHealth(tiles, view.cards), [tiles, view.cards]);
   const snap = snapshot(tiles, view.cards.filter((c) => c.tone === "risk"), strengths, view, health);
   const key = KEY.map((m) => tileBy(tiles, m)).filter(Boolean);
   const keyTiles = key.length >= 3 ? key : tiles.slice(0, 5);
@@ -110,13 +134,16 @@ export default function OverviewPage({ id, report, view }) {
     <section className="ov-hero">
       <div className="ov-hero-top">
         <div><h2>{snap.title}</h2><p>{snap.text}</p></div>
-        {health != null && <Link to={`/analysis/${id}/quality`} className="ov-ring" aria-label={`Data health ${health} out of 100. Open Data Quality`}>
-          <svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="19" className="ov-ring-bg"/><circle cx="22" cy="22" r="19" className="ov-ring-fg" strokeDasharray={`${(health / 100) * 119.4} 119.4`} transform="rotate(-90 22 22)"/></svg>
-          <b>{health}</b><span>data health</span></Link>}
+        <div className="ov-rings">
+          {bh && <Ring value={bh.score} label="business health" tone="biz" onClick={() => document.getElementById("biz-health")?.scrollIntoView({ behavior: "smooth", block: "start" })} aria={`Business health ${bh.score} out of 100, ${bh.label}. Show the breakdown`}/>}
+          {health != null && <Ring value={health} label="data health" to={`/analysis/${id}/quality`} aria={`Data health ${health} out of 100. Open Data Quality`}/>}
+        </div>
       </div>
       {keyTiles.length > 0 && <div className="ov-figs">{keyTiles.map((t) => <HeroFigure key={`${t.metric}-${t.source}`} t={t}/>)}</div>}
     </section>
     {notes.length > 0 && <p className="ov-note">{notes.join(" ")} More numbers on the Sales and Customers pages.</p>}
+
+    {bh && <BizHealth bh={bh} id={id}/>}
 
     <form className="ov-ask" onSubmit={(e) => { e.preventDefault(); if (q.trim().length >= 3) navigate(`/analysis/${id}/ask?q=${encodeURIComponent(q.trim())}`); }}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12Z"/></svg>

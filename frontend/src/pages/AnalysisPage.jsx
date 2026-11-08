@@ -10,10 +10,11 @@ import ExplorerPage from "../components/alpha/ExplorerPage";
 import { PickContext } from "../components/alpha/viz/PickContext";
 import SampleTour from "../components/alpha/SampleTour";
 import { sampleOf } from "../services/samples";
+import DictionaryPage from "../components/alpha/DictionaryPage";
 import HoodPage from "../components/alpha/HoodPage";
 import AlertsPage from "../components/alpha/AlertsPage";
 
-const SECTIONS = new Set(["overview", "mapping", "quality", "explorer", "sales", "customers", "products", "trends", "suggestions", "alerts", "whatif", "ask", "hood"]);
+const SECTIONS = new Set(["overview", "mapping", "quality", "dictionary", "explorer", "sales", "customers", "products", "trends", "suggestions", "alerts", "whatif", "ask", "hood"]);
 const OLD_TAB = { summary: "overview", findings: "suggestions", explore: "explorer", data: "quality", ask: "ask", reading: "mapping" };
 
 export default function AnalysisPage() {
@@ -52,6 +53,7 @@ export default function AnalysisPage() {
   else if (section === "trends") body = <TrendsPage report={report}/>;
   else if (section === "mapping") body = <><Head title="Header Mapping" intro="What Alpha understood each column to mean, and how it used it."><Link className="secondary-button" to="/upload">Change the mapping</Link></Head><ReadTab report={report} view={view} open={() => go("suggestions")}/></>;
   else if (section === "quality") body = <><Head title="Data Quality" intro="Every check Alpha ran on your rows, and what it found."/><DataTab report={report} view={view}/></>;
+  else if (section === "dictionary") body = <><Head title="Data Dictionary" intro="Every column in your files: what it means, what is in it, and how clean it is."/><DictionaryPage id={id} report={report}/></>;
   else if (section === "explorer") body = <><Head title="Data Explorer" intro="Search, filter and sort every finding Alpha made."/><ExplorerPage view={view}/></>;
   else if (section === "suggestions") body = <><Head title="Suggestions" intro="What Alpha found, ranked by importance and the money involved."/><FindingsTab view={view}/></>;
   else if (section === "alerts") body = <><Head title="Alerts" intro="Everything that needs your attention, most serious first."/><AlertsPage id={id} report={report} view={view}/></>;
