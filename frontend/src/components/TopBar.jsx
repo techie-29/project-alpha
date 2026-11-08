@@ -61,6 +61,7 @@ export default function TopBar({ accountLabel, onLogout, onMenu }) {
     {status && status.status !== "done" && status.status !== "failed" && <span className="tb-running"><span className="spinner"/>{status.progress || 0}%</span>}
     <Search currentId={currentId} report={report} view={view}/>
     <div className="tb-actions">
+      {exportable && <button type="button" className="tb-btn" onClick={() => navigate(`/present/${currentId}`)} title="Turn this analysis into slides"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 21h8M12 16v5"/></svg>Present</button>}
       {exportable && <div className="tb-pop"><button type="button" className="tb-btn" onClick={() => toggle("export")} aria-expanded={menu === "export"} disabled={!!busy}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>{busy ? "Preparing…" : "Export"}</button>
         {menu === "export" && <div className="tb-menu-list"><button type="button" onClick={() => exp("pdf")}>PDF report</button><button type="button" onClick={() => exp("xlsx")}>Excel workbook</button></div>}</div>}

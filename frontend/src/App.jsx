@@ -11,6 +11,11 @@ const AnalysesPage = lazy(() => import("./pages/AnalysesPage"));
 const NewAnalysisPage = lazy(() => import("./pages/NewAnalysisPage"));
 const AnalysisPage = lazy(() => import("./pages/AnalysisPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const PresentSetup = lazy(() => import("./components/alpha/present/PresentPage").then((m) => ({ default: m.Setup })));
+const PresentPlay = lazy(() => import("./components/alpha/present/PresentPage").then((m) => ({ default: m.Play })));
+const PresentPresenter = lazy(() => import("./components/alpha/present/PresentPage").then((m) => ({ default: m.Presenter })));
+const PresentPrint = lazy(() => import("./components/alpha/present/PresentPage").then((m) => ({ default: m.Print })));
+const PresentHandout = lazy(() => import("./components/alpha/present/PresentPage").then((m) => ({ default: m.Handout })));
 
 const TOKEN_KEY = "alphaToken";
 
@@ -56,7 +61,18 @@ export default function App() {
 
   const accountLabel = account?.businessName || account?.email || "Business Account";
 
-  return <AnalysisProvider token={token}><Shell token={token} accountLabel={accountLabel} onLogout={handleLogout}/></AnalysisProvider>;
+  return <AnalysisProvider token={token}>
+    <Suspense fallback={<div className="dk-wait"><span className="spinner"/></div>}>
+      <Routes>
+        <Route path="/present/:id" element={<PresentSetup/>}/>
+        <Route path="/present/:id/play" element={<PresentPlay/>}/>
+        <Route path="/present/:id/presenter" element={<PresentPresenter/>}/>
+        <Route path="/present/:id/print" element={<PresentPrint/>}/>
+        <Route path="/present/:id/handout" element={<PresentHandout/>}/>
+        <Route path="*" element={<Shell token={token} accountLabel={accountLabel} onLogout={handleLogout}/>}/>
+      </Routes>
+    </Suspense>
+  </AnalysisProvider>;
 }
 
 function Shell({ token, accountLabel, onLogout }) {
