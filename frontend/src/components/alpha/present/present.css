@@ -89,3 +89,12 @@
 .dk-right .dk-svg{height:auto;max-height:520px}
 .dk-fig{padding:34px 24px}.dk-fig b{font-size:48px}.dk-figs{margin-top:20px}
 .dk-tbl{width:100%;border-collapse:collapse;font-size:22px}.dk-tbl th{text-align:left;color:var(--dk-dim);font-weight:600;font-size:16px;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;border-bottom:2px solid var(--dk-panel)}.dk-tbl td{padding:12px 10px;border-bottom:1px solid var(--dk-panel)}.dk-tbl td:first-child{font-weight:700}
+
+/* business-review story */
+.dk-kick{align-self:flex-start;color:var(--dk-accent);font-weight:700;font-size:17px;letter-spacing:.12em;text-transform:uppercase}
+.dk-verdict{justify-content:center;gap:28px}.dk-verdict h2{font-size:56px;line-height:1.15;max-width:1080px}
+.dk-vb{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:14px}.dk-vb li{font-size:26px;color:var(--dk-dim);padding-left:30px;position:relative}.dk-vb li:before{content:"";position:absolute;left:0;top:13px;width:14px;height:14px;border-radius:50%;background:var(--dk-accent)}
+.dk-drv{flex-direction:row;gap:50px}.dk-bigpct{font:800 120px/1 "Bricolage Grotesque",sans-serif;color:var(--dk-accent);margin:10px 0 0}
+.dk-when{display:flex;flex-direction:column;align-items:flex-end;gap:6px}.dk-when em{font-style:normal;background:var(--dk-line);color:#fff;border-radius:99px;padding:3px 12px;font-size:15px;font-weight:700}
+.dk-actions small{display:block;margin-top:6px;color:var(--dk-dim);font-size:15px}
+.dk-risk .dk-badge{letter-spacing:.03em}

@@ -18,9 +18,9 @@ const view = { currency: "", cards: [
 describe("deck", () => {
   const d = buildDeck(report, view, { business: "Acme", presenter: "Sam" });
   it("builds the slides in a sensible order, each with notes", () => {
-    expect(d.map((s) => s.id)).toEqual(["title", "snapshot", "sales", "risk1", "good", "forecast", "actions", "quality", "close"]);
+    expect(d.map((s) => s.id)).toEqual(["title", "verdict", "snapshot", "sales", "risk1", "good", "forecast", "actions", "close", "quality"]);
     expect(d.every((s) => s.notes && s.notes.length > 20)).toBe(true);
-    expect(d[0].title).toBe("Acme: business review"); expect(d[0].presenter).toBe("Sam");
+    expect(d[0].title).toBe("Acme: performance review"); expect(d[0].presenter).toBe("Sam");
   });
   it("puts real numbers in the problem and forecast slides", () => {
     const risk = d.find((s) => s.id === "risk1"); expect(risk.chart.rows).toHaveLength(2); expect(risk.action).toBe("Check packing");
@@ -29,5 +29,13 @@ describe("deck", () => {
   it("leaves out slides it has nothing for", () => {
     const bare = buildDeck({ ...report, overview: { tiles: report.overview.tiles, sections: [] } }, { currency: "", cards: [] }, {});
     expect(bare.map((s) => s.id)).not.toContain("forecast"); expect(bare.map((s) => s.id)).not.toContain("risk1");
+  });
+});
+
+import { plain } from "./deck";
+describe("plain wording", () => {
+  it("says engine findings the way a person would to partners", () => {
+    expect(plain("Cancelled rate (status) is 7.3x higher for Jayanagar (branch)")).toBe("Jayanagar (branch) has 7.3x higher cancellations than the rest");
+    expect(plain("Average order value is 15% lower for Delivery app (order type)")).toBe("Average order value is 15% lower for Delivery app");
   });
 });

@@ -18,6 +18,17 @@ export async function exportPptx(slides, theme, fileName) {
         txt(s, d.title, { x: 0.95, y: 2.5, w: 11.5, h: 1.3, fontSize: 40, bold: true, valign: "top" });
         txt(s, [d.subtitle, d.presenter && `Presented by ${d.presenter}`].filter(Boolean).join("\n"), { x: 0.95, y: 3.9, w: 11, h: 0.9, fontSize: 18, color: T.dim, valign: "top" });
         break;
+      case "verdict":
+        txt(s, "THE HEADLINE", { x: 0.8, y: 1.0, w: 6, h: 0.4, fontSize: 13, bold: true, color: T.accent });
+        txt(s, d.title, { x: 0.8, y: 1.5, w: 11.7, h: 2.6, fontSize: 36, bold: true, valign: "top" });
+        txt(s, d.bullets.map((b) => ({ text: b, options: { bullet: true, breakLine: true } })), { x: 0.8, y: 4.3, w: 11.5, h: 2.2, fontSize: 18, color: T.dim, valign: "top", paraSpaceAfter: 8 });
+        foot(); break;
+      case "drivers":
+        head(d.title);
+        txt(s, `${d.share}%`, { x: 0.6, y: 1.8, w: 5, h: 1.5, fontSize: 72, bold: true, color: T.accent });
+        txt(s, d.caption, { x: 0.6, y: 3.4, w: 5.2, h: 1.5, fontSize: 18, color: T.dim, valign: "top" });
+        s.addChart(p.charts.BAR, [{ name: d.chart.title, labels: d.chart.rows.map((r) => String(r.group)), values: d.chart.rows.map((r) => r.value) }], { x: 6.3, y: 1.5, w: 6.5, h: 5, barDir: "bar", ...chartBase, chartColors: d.chart.rows.map((r, k) => k === 0 ? T.accent : T.line), showLegend: false, catAxisOrientation: "maxMin" });
+        foot(); break;
       case "snapshot":
         head(d.title);
         d.figures.slice(0, 5).forEach((f, k, arr) => {
@@ -36,7 +47,7 @@ export async function exportPptx(slides, theme, fileName) {
         s.addChart(p.charts.LINE, [{ name: "Sales", labels: d.line.x, values: d.line.y }], { x: 0.6, y: 1.5, w: 12.1, h: 4.9, ...chartBase, lineSize: 3, lineDataSymbol: "none", chartColors: [T.accent], showLegend: false });
         txt(s, d.caption, { x: 0.6, y: 6.4, w: 12.1, h: 0.5, fontSize: 14, color: T.dim }); foot(); break;
       case "risk":
-        txt(s, `PROBLEM ${d.n}`, { x: 0.6, y: 0.4, w: 4, h: 0.35, fontSize: 12, bold: true, color: T.bad });
+        txt(s, (d.kicker || `PROBLEM ${d.n}`).toUpperCase(), { x: 0.6, y: 0.4, w: 4, h: 0.35, fontSize: 12, bold: true, color: T.bad });
         txt(s, d.title, { x: 0.6, y: 0.8, w: d.chart ? 6.2 : 12, h: 1.8, fontSize: 24, bold: true, valign: "top" });
         if (d.money) txt(s, `${d.money} involved`, { x: 0.6, y: 2.7, w: 6, h: 0.5, fontSize: 20, bold: true, color: T.warn });
         if (d.point) txt(s, d.point, { x: 0.6, y: 3.3, w: d.chart ? 6.2 : 12, h: 1.4, fontSize: 15, color: T.dim, valign: "top" });
@@ -69,7 +80,8 @@ export async function exportPptx(slides, theme, fileName) {
         head(d.title);
         d.items.slice(0, 4).forEach((a, k) => { const y = 1.6 + k * 1.3; s.addShape(p.ShapeType.ellipse, { x: 0.6, y: y + 0.1, w: 0.6, h: 0.6, fill: { color: T.accent } });
           txt(s, String(k + 1), { x: 0.6, y: y + 0.1, w: 0.6, h: 0.6, fontSize: 18, bold: true, color: T.bg, align: "center", valign: "middle" });
-          txt(s, a.title, { x: 1.5, y, w: 8.6, h: 0.45, fontSize: 18, bold: true }); txt(s, a.action || "", { x: 1.5, y: y + 0.45, w: 8.6, h: 0.7, fontSize: 13, color: T.dim, valign: "top" });
+          txt(s, a.title, { x: 1.5, y, w: 8.6, h: 0.45, fontSize: 18, bold: true }); txt(s, `${a.action || ""}   Owner: ________`, { x: 1.5, y: y + 0.45, w: 8.6, h: 0.7, fontSize: 13, color: T.dim, valign: "top" });
+          if (a.when) txt(s, a.when, { x: 10.2, y: y + 0.5, w: 2.5, h: 0.4, fontSize: 12, color: T.accent, align: "right" });
           if (a.impact) txt(s, a.impact, { x: 10.2, y, w: 2.5, h: 0.5, fontSize: 16, bold: true, color: T.warn, align: "right" }); });
         foot(); break;
       case "quality": {
