@@ -8,6 +8,7 @@ export const NAV = [
     { label: "Upload", icon: "upload", to: "/upload" },
     { label: "Header Mapping", icon: "map", section: "mapping" },
     { label: "Data Quality", icon: "shield", section: "quality" },
+    { label: "Data Dictionary", icon: "book", section: "dictionary" },
     { label: "Data Explorer", icon: "table", section: "explorer" }] },
   { group: "Analysis", items: [
     { label: "Sales", icon: "chart", section: "sales" },
@@ -29,6 +30,7 @@ export function NavIcon({ name }) {
     upload: <><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></>,
     map: <><path d="M4 6h6M4 12h6M4 18h6"/><path d="M14 6h6M14 12h6M14 18h6"/><path d="m10 6 4 6-4 6"/></>,
     shield: <><path d="M12 3 5 6v6c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></>,
+    book: <><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5Z"/><path d="M4 19a2 2 0 0 1 2-2h13M8 7h7"/></>,
     table: <><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 4v16"/></>,
     chart: <><path d="M4 19V10"/><path d="M10 19V5"/><path d="M16 19v-7"/><path d="M22 19H2"/></>,
     users: <><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.7c1.9.7 3.1 2.5 3.5 5.3"/></>,

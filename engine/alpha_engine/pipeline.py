@@ -8,6 +8,7 @@ import os
 import pickle
 import threading
 import time
+import pandas as pd
 from pathlib import Path
 from .llm import Provider, NullProvider
 from .validate import validate
@@ -259,10 +260,54 @@ def _share_currency(model: dict) -> None:
                                              "reasons": [f"other tables in this upload are in {code}"]}
 
 
+PROFILE_HIDE = {"personal", "birth_date"}
+
+
+def _profile(s, role: str, hide: bool) -> dict:
+    """A quick look at one column for the data dictionary: how full it is, how varied, a few examples and its spread or top values."""
+    n = len(s)
+    filled = s.notna() & (s.astype(str).str.strip() != "")
+    vals = s[filled]
+    out = {"filled": round(float(filled.mean()), 4) if n else 0.0, "blank": int(n - filled.sum()), "unique": int(vals.nunique())}
+    if hide:
+        out["hidden"] = True
+        return out
+    if pd.api.types.is_datetime64_any_dtype(vals):
+        midnight = bool((vals.dt.normalize() == vals).all())
+        vals = vals.dt.strftime("%Y-%m-%d" if midnight else "%Y-%m-%d %H:%M")
+        out["first"], out["last"] = (str(vals.min()), str(vals.max())) if len(vals) else (None, None)
+    out["examples"] = [str(v)[:40] for v in vals.drop_duplicates().head(3)]
+    num = pd.to_numeric(vals, errors="coerce") if role == "measure" else None
+    if num is not None and num.notna().mean() > 0.9:
+        num = num.dropna()
+        out["stats"] = {"min": float(num.min()), "max": float(num.max()), "mean": float(num.mean()), "median": float(num.median())}
+    elif role not in ("time",) and out["unique"]:
+        top = vals.astype(str).value_counts().head(5)
+        if top.iloc[0] > 1:                     # an id column (every value once) has no "top values"
+            out["top"] = [{"value": str(k)[:40], "count": int(v)} for k, v in top.items()]
+    return out
+
+
+def _column_issues(p) -> dict:
+    """What cleaning found per column, in plain words."""
+    rep = getattr(p, "cleaning", None) or {}
+    out: dict = {}
+    for a in rep.get("auto", []):
+        col = a.get("id", "").split(":", 1)[-1] if ":" in a.get("id", "") else None
+        if col:
+            out.setdefault(col, []).append(a.get("what", "fixed automatically"))
+    for g in rep.get("groups", []):
+        for col in g.get("columns", []):
+            share = "" if len(g.get("columns", [])) == 1 else " (shared with other columns)"
+            out.setdefault(col, []).append(f"{g.get('title', 'Problem')}: {g.get('count', 0):,} cell(s){share}")
+    return out
+
+
 def _reading(files, tables, links, model) -> dict:
     out = []
     for s in files:
         p, fm = tables[s["name"]], model["files"][s["name"]]
+        issues = _column_issues(p)
         cols = []
         for c, i in p.roles.items():
             if c.startswith("__") or c in ("_t", "_row"):
@@ -275,7 +320,9 @@ def _reading(files, tables, links, model) -> dict:
                                                                                           and (v.get("confidence") or 0) < 0.7
                                                                                           and v.get("concept") not in ("entity_id", "number", "group", "personal", "free_text", None)),
                          "unsure_between": v.get("unsure_between"),
-                         "source": v.get("source", "auto"), "unique": i.get("unique")})
+                         "source": v.get("source", "auto"), "unique": i.get("unique"),
+                         "profile": _profile(p.df[c], i["role"], v.get("concept") in PROFILE_HIDE) if c in p.df.columns else None,
+                         "issues": issues.get((getattr(p, "original_names", {}) or {}).get(c, c), []) or issues.get(c, [])})
             if i["role"] == "time":
                 cols[-1]["date"] = {"order": i.get("date_order"), "certain": bool(i.get("date_certain", True)), "example": i.get("date_example"),
                                     "reason": i.get("date_reason"), "from": i.get("date_min"), "to": i.get("date_max"), "grain": i.get("date_grain"),
