@@ -20,11 +20,13 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50, standardHeaders: "draft-8", legacyHeaders: false });
+// Counters live in memory, so restarting the backend clears them. Outside production the limits are 10x looser so testing and sample uploads never lock you out.
+const LOOSE = process.env.NODE_ENV === "production" ? 1 : 10;
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 50 * LOOSE, standardHeaders: "draft-8", legacyHeaders: false });
 // Uploads and starting analyses are limited tightly; reading status and reports (polled while a run is in progress) gets plenty of room.
-const alphaWriteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false,
+const alphaWriteLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 120 * LOOSE, standardHeaders: "draft-8", legacyHeaders: false,
     skip: (req) => req.method === "GET" || req.method === "HEAD" || req.path === "/quality" });   // the data-quality check is cheap and repeatable
-const alphaReadLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 3000, standardHeaders: "draft-8", legacyHeaders: false });
+const alphaReadLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 3000 * LOOSE, standardHeaders: "draft-8", legacyHeaders: false });
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
