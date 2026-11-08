@@ -1,3 +1,4 @@
+import SuggestionsPage from "../components/alpha/SuggestionsPage";
 import { useEffect, useMemo } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AskTab, DataTab, FindingsTab, ReadTab } from "../components/alpha/report/Report";
@@ -55,7 +56,7 @@ export default function AnalysisPage() {
   else if (section === "quality") body = <><Head title="Data Quality" intro="Every check Alpha ran on your rows, and what it found."/><DataTab report={report} view={view}/></>;
   else if (section === "dictionary") body = <><Head title="Data Dictionary" intro="Every column in your files: what it means, what is in it, and how clean it is."/><DictionaryPage id={id} report={report}/></>;
   else if (section === "explorer") body = <><Head title="Data Explorer" intro="Search, filter and sort every finding Alpha made."/><ExplorerPage view={view}/></>;
-  else if (section === "suggestions") body = <><Head title="Suggestions" intro="What Alpha found, ranked by importance and the money involved."/><FindingsTab view={view}/></>;
+  else if (section === "suggestions") body = <><Head title="Suggestions" intro="What to do, in order. Each one says what to do first, why, and how much money is behind it."/><SuggestionsPage id={id} report={report} view={view}/></>;
   else if (section === "alerts") body = <><Head title="Alerts" intro="Everything that needs your attention, most serious first."/><AlertsPage id={id} report={report} view={view}/></>;
   else if (section === "whatif") body = <><Head title="What-If" intro="Try a change and see what it would do to revenue and profit."/><WhatIfPage report={report}/></>;
   else if (section === "hood") body = <><Head title="Under the Hood" intro="Everything Alpha did with your files, step by step."/><HoodPage id={id} report={report}/></>;

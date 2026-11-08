@@ -53,10 +53,15 @@ _NEXT_STEP = (
 )
 
 
+_CUT = {"return": "returns", "cancel": "cancellations", "refund": "refunds", "delay": "late deliveries", "deliver": "slow deliveries"}
+
+
 def _worse_for(ml: str, v, col: str, n: dict) -> str:
-    """A concrete next step for a group that does worse than the rest, chosen by what is being measured."""
+    """A concrete instruction for a group that does worse than the rest, chosen by what is being measured."""
     step = next((t for k, t in _NEXT_STEP if k in ml), "Open the rows behind it and look for a shared reason (product, supplier, process, staff).")
-    return f"{ml.capitalize()} is worse for {v} ({col}). {step}"
+    cut = next((noun for k, noun in _CUT.items() if k in ml), None)
+    lead = f"Cut {cut} at {v} ({col})." if cut else f"Lift {ml} at {v} ({col})."
+    return f"{lead} {step}"
 
 
 def suggestion(i: dict) -> str | None:
