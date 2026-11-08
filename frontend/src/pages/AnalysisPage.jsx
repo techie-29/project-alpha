@@ -8,6 +8,8 @@ import OverviewPage from "../components/alpha/OverviewPage";
 import WhatIfPage from "../components/alpha/WhatIfPage";
 import ExplorerPage from "../components/alpha/ExplorerPage";
 import { PickContext } from "../components/alpha/viz/PickContext";
+import SampleTour from "../components/alpha/SampleTour";
+import { sampleOf } from "../services/samples";
 import HoodPage from "../components/alpha/HoodPage";
 import AlertsPage from "../components/alpha/AlertsPage";
 
@@ -56,5 +58,5 @@ export default function AnalysisPage() {
   else if (section === "whatif") body = <><Head title="What-If" intro="Try a change and see what it would do to revenue and profit."/><WhatIfPage report={report}/></>;
   else if (section === "hood") body = <><Head title="Under the Hood" intro="Everything Alpha did with your files, step by step."/><HoodPage id={id} report={report}/></>;
   else if (section === "ask") body = <><Head title="Ask Your Data" intro="Ask a question in plain words. Alpha answers from your rows only."/><AskTab analysisId={id} token={token} aiOn={report.ai?.provider && report.ai.provider !== "none"} initial={params.get("q") || undefined}/></>;
-  return <PickContext.Provider value={pick}><div className="page-content al-report pg-anim" key={section}>{body}</div></PickContext.Provider>;
+  return <PickContext.Provider value={pick}><div className="page-content al-report pg-anim" key={section}>{body}</div>{sampleOf(report) && <SampleTour id={id} sample={sampleOf(report)} section={section}/>}</PickContext.Provider>;
 }

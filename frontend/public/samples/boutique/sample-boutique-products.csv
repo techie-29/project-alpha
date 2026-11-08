@@ -1,0 +1,16 @@
+product_id,product_name,category,supplier,unit_cost,list_price
+B001,Cotton kurta,Kurtas,Jaipur Looms,420,999
+B002,Silk kurta,Kurtas,Banaras Silks,1100,2499
+B003,Anarkali dress,Dresses,Jaipur Looms,900,2199
+B004,Maxi dress,Dresses,Urban Thread,650,1599
+B005,Palazzo pants,Bottoms,Urban Thread,300,799
+B006,Jeans,Bottoms,Denim Hub,700,1699
+B007,Dupatta,Accessories,Jaipur Looms,150,449
+B008,Handbag,Accessories,Leather Lane,800,1899
+B009,Silk saree,Sarees,Banaras Silks,2600,5999
+B010,Cotton saree,Sarees,Handloom Co-op,900,1999
+B011,Co-ord set,Dresses,Urban Thread,850,1999
+B012,Ethnic jacket,Jackets,Jaipur Looms,950,2299
+B013,Linen shirt,Tops,Urban Thread,500,1199
+B014,Crop top,Tops,Urban Thread,280,699
+B015,Velvet blazer,Jackets,Urban Thread,1700,3499

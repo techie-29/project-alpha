@@ -1,0 +1,118 @@
+[
+  {
+    "key": "grocery",
+    "name": "Sri Krishna Stores",
+    "about": "Neighbourhood grocery store with 3 branches in Bengaluru",
+    "files": [
+      "sample-grocery-orders.csv",
+      "sample-grocery-order-items.csv",
+      "sample-grocery-products.csv",
+      "sample-grocery-customers.csv",
+      "sample-grocery-stock.csv"
+    ],
+    "tour": [
+      {
+        "section": "overview",
+        "title": "Start with the briefing",
+        "text": "The dark panel sums up the whole store: the key numbers for the last full month and how many things need attention."
+      },
+      {
+        "section": "alerts",
+        "title": "One branch is slipping",
+        "text": "Jayanagar's cancellations jumped from April 2026. Alerts puts it first, with what to check."
+      },
+      {
+        "section": "suggestions",
+        "title": "A courier with many returns",
+        "text": "Orders sent through QuickDrop courier come back about 5x as often. Open the finding to see the rows behind it."
+      },
+      {
+        "section": "products",
+        "title": "Best sellers on empty shelves",
+        "text": "Three of the store's best sellers are out of stock, and two imported items have not sold at all."
+      },
+      {
+        "section": "whatif",
+        "title": "Try a change",
+        "text": "Move the discount slider to see what the COMBO5 offer costs in profit."
+      }
+    ]
+  },
+  {
+    "key": "boutique",
+    "name": "Tara Boutique",
+    "about": "Women's clothing sold in store, online and on Instagram",
+    "files": [
+      "sample-boutique-orders.csv",
+      "sample-boutique-order-items.csv",
+      "sample-boutique-products.csv",
+      "sample-boutique-customers.csv",
+      "sample-boutique-stock.csv"
+    ],
+    "tour": [
+      {
+        "section": "overview",
+        "title": "Start with the briefing",
+        "text": "The dark panel sums up the boutique: revenue, profit and what needs attention."
+      },
+      {
+        "section": "alerts",
+        "title": "Website orders come back",
+        "text": "Orders from the website are returned about 4x as often as store or Instagram orders. Sizing is the usual reason."
+      },
+      {
+        "section": "suggestions",
+        "title": "A coupon that costs too much",
+        "text": "FEST30 brings in orders, but its profit margin is about 17 points lower."
+      },
+      {
+        "section": "trends",
+        "title": "Instagram is growing",
+        "text": "Instagram's share keeps rising month after month, and October and November peak every year."
+      },
+      {
+        "section": "customers",
+        "title": "Regulars who stopped coming",
+        "text": "A group of regular customers has gone quiet. They are worth a call or a message."
+      }
+    ]
+  },
+  {
+    "key": "cafe",
+    "name": "Bean There Caf\u00e9",
+    "about": "Two-outlet caf\u00e9 with dine-in, takeaway and delivery apps",
+    "files": [
+      "sample-cafe-orders.csv",
+      "sample-cafe-order-items.csv",
+      "sample-cafe-products.csv",
+      "sample-cafe-customers.csv"
+    ],
+    "tour": [
+      {
+        "section": "overview",
+        "title": "Start with the briefing",
+        "text": "The dark panel sums up both outlets: sales, profit and what needs attention."
+      },
+      {
+        "section": "alerts",
+        "title": "One counter, many refunds",
+        "text": "Counter 3 refunds about 8x as often as the others. Worth checking training or the till."
+      },
+      {
+        "section": "suggestions",
+        "title": "Delivery apps earn less per order",
+        "text": "Delivery-app orders are about 15% smaller after the app discount."
+      },
+      {
+        "section": "trends",
+        "title": "Weekends carry the caf\u00e9",
+        "text": "Saturday and Sunday are far busier than weekdays. Plan staff and stock around them."
+      },
+      {
+        "section": "hood",
+        "title": "See how Alpha did it",
+        "text": "Every step from reading the files to the checks is listed here, in order."
+      }
+    ]
+  }
+]

@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import UploadZone from "../components/UploadZone";
 import ReadingReview from "../components/alpha/ReadingReview";
 import DataQuality from "../components/alpha/DataQuality";
+import SamplePicker from "../components/alpha/SamplePicker";
+import { sampleFiles } from "../services/samples";
 import { checkQuality, deleteFile, listFiles, readFiles, startAnalysis, uploadFiles } from "../services/alphaApi";
 import { buildConfirmations, fileSize, mappedConcepts } from "../utils/alphaFormat";
 
@@ -47,9 +49,20 @@ export default function NewAnalysisPage({ token }) {
 
   const confirmations = (r = reading, c = choices) => buildConfirmations({ ...c, mapped: r ? mappedConcepts(r, c) : {} });
 
-  async function review() {
+  async function pickSample(sample) {
+    setError(""); setBusy(sample.key); setProgress(0);
+    try {
+      const added = await uploadFiles(await sampleFiles(sample), token, setProgress);
+      await refresh();
+      const ids = new Set(added.map((a) => a.id));
+      setSelected(ids); setChoices(EMPTY); setQuality(null); setStep(0); setProgress(null);
+      await review(ids);
+    } catch (e) { setError(e.message); setBusy(""); } finally { setProgress(null); }
+  }
+
+  async function review(ids = selected) {
     setError(""); setBusy("reading");
-    try { const r = await readFiles([...selected], confirmations(null), token); setReading(r); setQuality(null); setStep(1); }
+    try { const r = await readFiles([...ids], confirmations(null), token); setReading(r); setQuality(null); setStep(1); }
     catch (e) { setError(e.message); } finally { setBusy(""); }
   }
 
@@ -82,6 +95,8 @@ export default function NewAnalysisPage({ token }) {
       {progress !== null && <div className="al-progress" role="progressbar" aria-valuenow={progress}><i style={{ width: `${progress}%` }}/><span>Uploading {progress}%</span></div>}
     </section>
 
+    {!reading && <SamplePicker onPick={pickSample} busy={["grocery", "boutique", "cafe"].includes(busy) ? busy : busy ? "x" : ""}/>}
+
     {error && <div className="error-banner" role="alert"><span>!</span><div><strong>Something went wrong</strong><p>{error}</p></div></div>}
 
     {files.length > 0 && <section className="al-panel">
@@ -92,7 +107,7 @@ export default function NewAnalysisPage({ token }) {
         <button type="button" className="al-link-button" onClick={() => remove(f.id)} aria-label={`Delete ${f.name}`}>Delete</button>
       </li>)}</ul>
       <div className="al-actions">
-        <button type="button" className="primary-button" disabled={!selected.size || busy !== ""} onClick={review}>{busy === "reading" ? "Reading…" : reading ? "Read again" : "Next: map the headers"}</button>
+        <button type="button" className="primary-button" disabled={!selected.size || busy !== ""} onClick={() => review()}>{busy === "reading" ? "Reading…" : reading ? "Read again" : "Next: map the headers"}</button>
       </div>
     </section>}
 
@@ -102,7 +117,7 @@ export default function NewAnalysisPage({ token }) {
     {reading && step === 1 && <>
       <ReadingReview reading={reading} choices={choices} setChoices={setChoices}/>
       <div className="al-actions al-sticky">
-        <button type="button" className="secondary-button" onClick={review} disabled={busy !== ""}>Apply my changes and re-read</button>
+        <button type="button" className="secondary-button" onClick={() => review()} disabled={busy !== ""}>Apply my changes and re-read</button>
         <button type="button" className="primary-button" onClick={() => check()} disabled={busy !== ""}>{busy === "checking" ? "Checking…" : "Next: check the data"}</button>
       </div>
     </>}

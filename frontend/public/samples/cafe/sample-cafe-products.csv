@@ -1,0 +1,13 @@
+product_id,product_name,category,supplier,unit_cost,list_price
+M01,Filter coffee,Coffee,Coorg Estates,18,60
+M02,Cappuccino,Coffee,Coorg Estates,35,160
+M03,Cold brew,Coffee,Coorg Estates,40,190
+M04,Masala chai,Tea,Hill Leaf,12,50
+M05,Green tea,Tea,Hill Leaf,15,90
+M06,Veg sandwich,Food,Daily Bake,45,150
+M07,Chicken wrap,Food,Daily Bake,80,220
+M08,Croissant,Bakery,Daily Bake,35,120
+M09,Chocolate brownie,Bakery,Daily Bake,30,130
+M10,Blueberry muffin,Bakery,Daily Bake,32,110
+M11,Fresh lime soda,Coolers,Fresh Press,15,90
+M12,Mango smoothie,Coolers,Fresh Press,45,180

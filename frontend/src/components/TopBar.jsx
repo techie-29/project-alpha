@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { alertsOf, healthOf, useAnalysis } from "../context/AnalysisContext";
+import { sampleOf } from "../services/samples";
 import { downloadExport } from "../services/alphaApi";
 import { NAV } from "./Sidebar";
 
@@ -54,6 +55,7 @@ export default function TopBar({ accountLabel, onLogout, onMenu }) {
       <select value={currentId || ""} onChange={(e) => { select(e.target.value); navigate(`/analysis/${e.target.value}/overview`); }}>
         {analyses.map((a) => <option key={a.id} value={a.id}>{label(a)}</option>)}
       </select></label>}
+    {sampleOf(report) && <span className="tb-sample" title="This analysis uses a sample business, not your data">Sample data</span>}
     {health !== null && <button type="button" className={`tb-health ${health >= 90 ? "good" : health >= 70 ? "ok" : "bad"}`} title="Share of rows that are fine or were cleaned" onClick={() => navigate(`/analysis/${currentId}/quality`)}>
       <i/>Health {health}</button>}
     {status && status.status !== "done" && status.status !== "failed" && <span className="tb-running"><span className="spinner"/>{status.progress || 0}%</span>}

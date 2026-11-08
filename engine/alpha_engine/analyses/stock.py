@@ -75,7 +75,7 @@ def run(K, sales_frames: list, currency: str | None) -> list[dict]:
     if len(soon):
         out.append(insight("low_cover", "stock", f"{len(soon):,} products will run out within 2 weeks at current sales",
                            "Days of cover = stock on hand / average daily sales over the last 90 days.", polarity="bad", actionable=True,
-                           numbers={"items": int(len(soon))}, chart=_table("Running out soon", soon.sort_values("cover"), nm, currency), source=K.name, tags=["stock", "cover"],
+                           numbers={"items": int(len(soon)), "days": 14, "window_days": 90}, chart=_table("Running out soon", soon.sort_values("cover"), nm, currency), source=K.name, tags=["stock", "cover"],
                            suggestion="Check re-order quantities and lead times for these items."))
     # 3. dead stock
     dead = t[(t.stock_level > 0) & (t.daily == 0)]

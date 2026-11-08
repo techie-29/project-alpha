@@ -59,8 +59,10 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
                 head = f"{t.label} is {b / a:.1f}x lower for {gname} ({colname})"
             else:
                 rel = (a - b) / abs(b) if b else 0
+                gap = abs(a - b) * (100 if t.fmt == "pct" else 1)
+                size = f"{gap:.1f} pts " if t.fmt == "pct" else f"{gap:.1f} {F.duration_unit} " if t.fmt == "days" else f"{gap:.1f} " if t.fmt == "rating" else ""
                 head = f"{t.label} is {abs(rel):.0%} {'higher' if up else 'lower'} for {gname} ({colname})" if t.fmt not in ("pct", "rating", "days") else \
-                       f"{t.label} is {'higher' if up else 'lower'} for {gname} ({colname})"
+                       f"{t.label} is {size}{'higher' if up else 'lower'} for {gname} ({colname})"
             detail = f"{fmt_value(a, t.fmt, (F.duration_unit if t.fmt == 'days' else currency or ''))} for {gname} against {fmt_value(b, t.fmt, (F.duration_unit if t.fmt == 'days' else currency or ''))} for everything else ({rows_g:,} rows)."
             impact, unit, what = None, "", None
             if t.kind == "rate":
@@ -88,7 +90,9 @@ def run(F, currency: str | None, avg_order: float | None, skip_cols: set | None 
                              sort_col="revenue" if "revenue" in F.df.columns else None)
             out.append(insight("group_difference", _area(t), head, detail, p=float(p[g]), polarity="good" if good else ("bad" if good is False else "neutral"),
                                impact=impact, impact_unit=unit, actionable=True, look_at={"col": col, "value": gname},
-                               numbers={"group": a, "rest": b, "rows": rows_g, "fmt": t.fmt, "unit": currency if t.money else ""},
+                               numbers={"group": a, "rest": b, "rows": rows_g, "fmt": t.fmt, "unit": currency if t.money else "",
+                                        **({"gap": abs(a - b) * (100 if t.fmt == "pct" else 1)} if t.fmt in ("pct", "rating", "days") else {}),
+                                        **({"excess": round(abs((a - b) * rows_g))} if t.kind == "rate" else {})},
                                chart={"type": "bar", "title": f"{t.label} by {colname}", "fmt": t.fmt, "unit": currency if t.money else "", "rows": rows, "focus": gname},
                                evidence=ev, source=F.name, metric=t.id, metric_label=t.label, tags=[col, gname]))
 

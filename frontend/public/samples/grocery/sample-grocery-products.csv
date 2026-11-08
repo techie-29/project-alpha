@@ -1,0 +1,21 @@
+product_id,product_name,category,supplier,unit_cost,list_price
+G001,Toned milk 1L,Dairy,Sunrise Dairy,52,58
+G002,Curd 500g,Dairy,Sunrise Dairy,30,36
+G003,Paneer 200g,Dairy,Sunrise Dairy,70,85
+G004,Basmati rice 5kg,Staples,Annapurna Traders,480,560
+G005,Toor dal 1kg,Staples,Annapurna Traders,125,148
+G006,Atta 10kg,Staples,Annapurna Traders,360,420
+G007,Sunflower oil 1L,Staples,Annapurna Traders,128,150
+G008,Sugar 1kg,Staples,Annapurna Traders,40,46
+G009,Tea 500g,Beverages,Hill Leaf,210,255
+G010,Instant coffee 100g,Beverages,Hill Leaf,230,280
+G011,Biscuits family pack,Snacks,Crunch Foods,45,60
+G012,Namkeen 400g,Snacks,Crunch Foods,70,95
+G013,Bread,Bakery,Daily Bake,32,40
+G014,Eggs (12),Dairy,Sunrise Dairy,72,84
+G015,Detergent 2kg,Household,CleanCo,180,225
+G016,Dishwash bar,Household,CleanCo,18,25
+G017,Toothpaste,Personal care,CleanCo,85,105
+G018,Shampoo 340ml,Personal care,CleanCo,190,240
+G019,Imported olive oil,Staples,Gourmet Imports,610,690
+G020,Quinoa 500g,Staples,Gourmet Imports,290,340
