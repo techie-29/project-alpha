@@ -6,6 +6,7 @@ import pandas as pd
 from ..metrics.frame import Frame
 from ..metrics.catalogue import available, generic_metrics, value, series, by_group, BY_ID, Metric
 from ..model.concepts import CONCEPTS
+from .forecast import make_forecast
 
 ROLE_TEXT = {"transactions": "Activity log", "lines": "Line items", "master": "Master list", "snapshot": "Snapshot over time", "periodic": "Period totals",
              "reference": "Reference table", "summary": "Summary (not analysed)", "other": "Other"}
@@ -120,6 +121,7 @@ def _r(v):
     return float(f"{v:.5g}")
 
 
+FORECAST_METRICS = {"revenue", "orders"}
 DAY_GRAIN_METRICS = {"revenue", "orders", "transactions", "customers", "units", "stock_value", "stock_units"}
 
 
@@ -141,8 +143,15 @@ def time_chart(F: Frame, m: Metric, cur: str | None, title: str | None = None, c
     if not grains:
         return None
     default = "month" if "month" in grains and span_days > 120 else ("week" if "week" in grains and span_days > 30 else next(iter(grains)))
-    return {"id": cid or f"{F.name}:{m.id}:time", "type": "line", "title": title or f"{m.label} over time", "metric": m.id, "fmt": m.fmt,
-            "unit": cur if m.money else (F.duration_unit if m.fmt == "days" else ""), "grains": grains, "default_grain": default, "source": F.name, "how": m.how}
+    chart = {"id": cid or f"{F.name}:{m.id}:time", "type": "line", "title": title or f"{m.label} over time", "metric": m.id, "fmt": m.fmt,
+             "unit": cur if m.money else (F.duration_unit if m.fmt == "days" else ""), "grains": grains, "default_grain": default, "source": F.name, "how": m.how}
+    if m.id in FORECAST_METRICS and "month" in grains and span_days >= 150:
+        try:
+            g = grains["month"]
+            chart["forecast"] = make_forecast(g["x"], g["series"][0]["values"], F.df["_t"].max().date(), F.df["_t"].min().date())
+        except Exception as e:                                   # a forecast must never break the analysis
+            chart["forecast"] = {"status": "none", "reason": f"The forecast could not be made ({type(e).__name__})."}
+    return chart
 
 
 def bar_chart(F: Frame, m: Metric, col: str, cur: str | None, top: int = 12) -> dict | None:

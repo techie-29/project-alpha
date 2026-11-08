@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, LineChart, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AXIS, DEEMPH, EMPHASIS, GRID, INK2, SERIES, tick, tooltipStyle } from "./theme";
 import { usePick } from "./PickContext";
+import ForecastCard from "./ForecastCard";
 import { axisFmt, cellText, fmtValue } from "../../../utils/alphaFormat";
 
 const GRAIN_LABEL = { day: "Day", week: "Week", month: "Month", quarter: "Quarter", year: "Year" };
@@ -27,24 +28,44 @@ function TimeLine({ spec, compactView }) {
   const grains = spec.grains || null;
   const [grain, setGrain] = useState(spec.default_grain || (grains ? Object.keys(grains)[0] : null));
   const g = grains ? grains[grain] : { x: spec.x, series: [{ name: spec.title, values: spec.values }] };
-  const data = useMemo(() => g.x.map((x, i) => Object.fromEntries([["x", x], ...g.series.map((s) => [s.name, s.values[i]])])), [g]);
+  const fc = spec.forecast?.status === "ok" ? spec.forecast : null;
+  const [showFc, setShowFc] = useState(true);
+  const withFc = !!fc && showFc && grain === "month";
+  const data = useMemo(() => {
+    const rows = g.x.map((x, i) => Object.fromEntries([["x", x], ...g.series.map((s) => [s.name, s.values[i]])]));
+    if (!withFc) return rows;
+    const name = g.series[0].name;
+    const at = rows.findIndex((r) => r.x === fc.last_actual);                       // the line joins the forecast at the last full month
+    if (at >= 0) { rows[at] = { ...rows[at], Forecast: rows[at][name], Range: [rows[at][name], rows[at][name]] }; }
+    fc.x.forEach((x, i) => {
+      const j = rows.findIndex((r) => r.x === x);                                   // a month still in progress: show its expected full value
+      const f = { Forecast: fc.mid[i], Range: [fc.low[i], fc.high[i]] };
+      if (j >= 0) rows[j] = { ...rows[j], ...f }; else rows.push({ x, ...f });
+    });
+    return rows;
+  }, [g, withFc, fc]);
   const fmt = spec.fmt || "number";
   const fr = spec.focus_range;
-  const controls = grains && Object.keys(grains).length > 1 ? <span className="al-seg">{Object.keys(grains).map((k) => <button type="button" key={k} className={k === grain ? "is-on" : ""} onClick={() => setGrain(k)}>{GRAIN_LABEL[k]}</button>)}</span> : null;
-  return <Frame title={spec.title + (spec.unit ? ` (${spec.unit})` : "")} controls={controls} height={compactView ? 180 : 240} note={spec.note}
+  const fcToggle = fc && grain === "month" ? <button type="button" className={`al-mini${showFc ? " is-on" : ""}`} aria-pressed={showFc} onClick={() => setShowFc(!showFc)}>Forecast</button> : null;
+  const controls = grains && Object.keys(grains).length > 1 ? <span className="al-seg">{Object.keys(grains).map((k) => <button type="button" key={k} className={k === grain ? "is-on" : ""} onClick={() => setGrain(k)}>{GRAIN_LABEL[k]}</button>)}{fcToggle}</span> : fcToggle;
+  const Chart = withFc ? ComposedChart : LineChart;
+  return <><Frame title={spec.title + (spec.unit ? ` (${spec.unit})` : "")} controls={controls} height={compactView ? 180 : 240} note={spec.note}
     table={<DataTable head={["Period", ...g.series.map((s) => s.name)]} rows={g.x.map((x, i) => [x, ...g.series.map((s) => fmtValue(s.values[i], fmt, spec.unit))])}/>}>
     <ResponsiveContainer>
-      <LineChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+      <Chart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
         <CartesianGrid stroke={GRID} vertical={false}/>
         <XAxis dataKey="x" tick={tick} minTickGap={40} tickLine={false} axisLine={{ stroke: GRID }}/>
         <YAxis tick={tick} width={56} tickFormatter={axisFmt(fmt)} tickLine={false} axisLine={false}/>
         <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [fmtValue(v, fmt, spec.unit), n]} cursor={{ stroke: AXIS, strokeWidth: 1 }}/>
         {fr && data[fr[0]] && <ReferenceArea x1={data[fr[0]].x} x2={data[Math.min(fr[1], data.length - 1)].x} fill={EMPHASIS} fillOpacity={0.12} stroke="none"/>}
         {g.series.map((s, i) => <Line key={s.name} type="monotone" dataKey={s.name} stroke={SERIES[i % SERIES.length]} strokeWidth={2} dot={false} activeDot={{ r: 4, stroke: "#ffffff", strokeWidth: 2 }} connectNulls/>)}
+        {withFc && <Area type="monotone" dataKey="Range" stroke="none" fill={SERIES[0]} fillOpacity={0.14} isAnimationActive={false} legendType="none" tooltipType="none"/>}
+        {withFc && <Line type="monotone" dataKey="Forecast" stroke={SERIES[0]} strokeWidth={2} strokeDasharray="6 5" dot={false} isAnimationActive={false}/>}
         {g.series.length > 1 && <Legend wrapperStyle={{ fontSize: 12, color: INK2 }}/>}
-      </LineChart>
+      </Chart>
     </ResponsiveContainer>
-  </Frame>;
+  </Frame>
+  {spec.forecast && grain === "month" && <ForecastCard forecast={spec.forecast} fmt={fmt} unit={spec.unit}/>}</>;
 }
 
 function Bars({ spec, compactView }) {
