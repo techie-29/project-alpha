@@ -1,3 +1,4 @@
+import ForecastPage from "../components/alpha/ForecastPage";
 import SuggestionsPage from "../components/alpha/SuggestionsPage";
 import { useEffect, useMemo } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -15,7 +16,7 @@ import DictionaryPage from "../components/alpha/DictionaryPage";
 import HoodPage from "../components/alpha/HoodPage";
 import AlertsPage from "../components/alpha/AlertsPage";
 
-const SECTIONS = new Set(["overview", "mapping", "quality", "dictionary", "explorer", "sales", "customers", "products", "trends", "suggestions", "alerts", "whatif", "ask", "hood"]);
+const SECTIONS = new Set(["overview", "mapping", "quality", "dictionary", "explorer", "sales", "customers", "products", "trends", "suggestions", "forecast", "alerts", "whatif", "ask", "hood"]);
 const OLD_TAB = { summary: "overview", findings: "suggestions", explore: "explorer", data: "quality", ask: "ask", reading: "mapping" };
 
 export default function AnalysisPage() {
@@ -57,6 +58,7 @@ export default function AnalysisPage() {
   else if (section === "dictionary") body = <><Head title="Data Dictionary" intro="Every column in your files: what it means, what is in it, and how clean it is."/><DictionaryPage id={id} report={report}/></>;
   else if (section === "explorer") body = <><Head title="Data Explorer" intro="Search, filter and sort every finding Alpha made."/><ExplorerPage view={view}/></>;
   else if (section === "suggestions") body = <><Head title="Suggestions" intro="What to do, in order. Each one says what to do first, why, and how much money is behind it."/><SuggestionsPage id={id} report={report} view={view}/></>;
+  else if (section === "forecast") body = <><Head title="Forecast" intro="Where revenue and orders are heading over the next three months, and how far to trust it."/><ForecastPage report={report}/></>;
   else if (section === "alerts") body = <><Head title="Alerts" intro="Everything that needs your attention, most serious first."/><AlertsPage id={id} report={report} view={view}/></>;
   else if (section === "whatif") body = <><Head title="What-If" intro="Try a change and see what it would do to revenue and profit."/><WhatIfPage report={report}/></>;
   else if (section === "hood") body = <><Head title="Under the Hood" intro="Everything Alpha did with your files, step by step."/><HoodPage id={id} report={report}/></>;

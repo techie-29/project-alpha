@@ -17,6 +17,7 @@ export const NAV = [
     { label: "Trends", icon: "trend", section: "trends" }] },
   { group: "Insights", items: [
     { label: "Suggestions", icon: "spark", section: "suggestions" },
+    { label: "Forecast", icon: "forecast", section: "forecast" },
     { label: "Alerts", icon: "bell", section: "alerts" }] },
   { group: "Tools", items: [
     { label: "What-If", icon: "sliders", section: "whatif" },
@@ -37,6 +38,7 @@ export function NavIcon({ name }) {
     box: <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></>,
     trend: <><path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/></>,
     spark: <><path d="m12 3 1.7 4.3L18 9l-4.3 1.7L12 15l-1.7-4.3L6 9l4.3-1.7L12 3Z"/><path d="m19 15 .9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15Z"/></>,
+    forecast: <><path d="M3 17 8 12l4 3 4-5"/><path d="M16 10l1.5-1.5M20 6l1.5-1.5" strokeDasharray="1 3"/><path d="M3 21h18"/></>,
     bell: <><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></>,
     sliders: <><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></>,
     chat: <><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.6A8 8 0 1 1 21 12Z"/></>,

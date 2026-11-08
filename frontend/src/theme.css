@@ -148,3 +148,11 @@ button.ov-ring{border:0;background:transparent;padding:0;cursor:pointer;font:inh
 .sg-detail{margin-top:14px}.sg-done summary{cursor:pointer;font-weight:600;color:#5d6773;margin-bottom:10px}
 @media(max-width:640px){.sg-item{grid-template-columns:1fr}.sg-n{display:none}.sg-track{margin-left:0}}
 .sg-keep .sg-money{background:#e3f5ee;color:#0d6b4a}.sg-plan .sg-money,.sg-watch .sg-money{background:#f1f4f6;color:#44505c}
+
+/* Forecast page */
+.fcp{display:flex;flex-direction:column;gap:22px}.fcp-sec{background:#fff;border:1px solid #e1e6ea;border-radius:16px;padding:22px}
+.fcp-head{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px}.fcp-k{font-size:12px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:#5d6773}
+.fcp-head h3{margin:4px 0;font:700 26px "Bricolage Grotesque",sans-serif}.fcp-head p{margin:0;color:#5d6773}
+.fcp-trust{align-self:flex-start;border-radius:12px;padding:10px 16px;font-weight:700;display:flex;flex-direction:column}.fcp-trust small{font-weight:400;font-size:12px;margin-top:2px}
+.fcp-good{background:#e3f5ee;color:#0d6b4a}.fcp-fair{background:#fff4d6;color:#7a5600}.fcp-weak{background:#fdecea;color:#a12b22}.fcp-none{background:#f1f4f6;color:#44505c}
+.fc-empty h3{margin:0 0 6px}
